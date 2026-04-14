@@ -471,7 +471,7 @@ if __name__ == "__main__":
 
     # ── Test 5: Integration with CAV routing ──
     print("\n--- Test 5: CAV Integration ---")
-    test_cav = CAV(vehicle_id=999, origin=(1, 0), destination=(3, 5))
+    test_cav = CAV(vehicle_id=999, origin=(1, 0), destination=(3, 5)) #Juice Wrld Tribute
     test_cav.current_node = (1, 0)
     test_cav.state = test_cav.state.__class__["EN_ROUTE"]
 

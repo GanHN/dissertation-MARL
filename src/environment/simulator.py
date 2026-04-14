@@ -37,9 +37,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.environment.grid_network import GridNetwork, NetworkConfig
-from src.environment.vehicle import (
-    CAV, HDV, Vehicle, VehicleFactory, VehicleState, VehicleType,
-)
+from src.environment.vehicle import ( CAV, HDV, Vehicle, VehicleFactory, VehicleState, VehicleType,)
 from src.communication.comm_manager import CommunicationManager, CommConfig
 from src.routing.dec_ctdsp import dec_ctdsp_route, DecCTDSPConfig
 
@@ -487,12 +485,12 @@ if __name__ == "__main__":
     # ── Test 1: Small quick run ──
     print("\n--- Test 1: Quick Simulation (MP=100%, CR=0.5) ---")
     sim_config = SimConfig(
-        num_vehicles=30,
+        num_vehicles=100,
         market_penetration=1.0,
         communication_radius=0.5,
         num_obstacles=2,
-        max_timesteps=150,
-        convergence_window=50,
+        max_timesteps=500,
+        convergence_window=100,
         warmup_steps=10,
         seed=42,
     )
@@ -506,12 +504,12 @@ if __name__ == "__main__":
     # ── Test 2: HDV-only baseline (MP=0%) ──
     print("\n--- Test 2: HDV-Only Baseline (MP=0%) ---")
     baseline_config = SimConfig(
-        num_vehicles=30,
+        num_vehicles=100,
         market_penetration=0.0,
         communication_radius=0.5,
         num_obstacles=2,
-        max_timesteps=150,
-        convergence_window=50,
+        max_timesteps=500,
+        convergence_window=100,
         warmup_steps=10,
         seed=42,
     )
