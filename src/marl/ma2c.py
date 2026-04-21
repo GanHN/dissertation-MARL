@@ -1,5 +1,6 @@
 """
 ma2c.py - Multi-Agent Advantage Actor-Critic (MA2C)
+=====================================================
 The MARL algorithm that learns cooperative driving policies using
 Centralized Training with Decentralized Execution (CTDE).
 
@@ -54,15 +55,22 @@ class MA2CConfig:
     critic_hidden: int = 128
 
     # Training hyperparameters
-    learning_rate: float = 3e-4
-    gamma: float = 0.99          # Discount factor
-    gae_lambda: float = 0.95     # GAE lambda for advantage estimation
-    entropy_coeff: float = 0.01  # Entropy bonus for exploration
+    learning_rate: float = 5e-5      # Lower LR = more stable updates (was 3e-4)
+    gamma: float = 0.99              # Discount factor
+    gae_lambda: float = 0.95         # GAE lambda for advantage estimation
+    entropy_coeff: float = 0.02      # Entropy bonus for exploration (was 0.01)
     value_loss_coeff: float = 0.5
-    max_grad_norm: float = 0.5   # Gradient clipping
+    max_grad_norm: float = 0.3       # Tighter gradient clipping (was 0.5)
+
+    # PPO-style clipping to prevent destructive policy updates
+    ppo_clip_epsilon: float = 0.2    # Limit how much policy can change per update
+    use_ppo_clip: bool = True        # Enable PPO-style clipping in A2C
+
+    # Reward normalisation
+    reward_scale: float = 0.01       # Scale raw rewards to ~[-1, +1] range
 
     # Rollout
-    rollout_length: int = 32     # Steps before each update
+    rollout_length: int = 32         # Steps before each update
 
     # GAT
     gat_config: GATConfig = field(default_factory=GATConfig)
@@ -416,14 +424,14 @@ class MA2CAgent:
         Update networks using collected rollout data.
 
         Computes:
-            - Policy gradient loss (actor)
+            - Policy gradient loss with PPO-style clipping (if enabled)
             - Value function loss (critic)
             - Entropy bonus (for exploration)
 
-        IMPORTANT: The GAT is re-run with gradients enabled here, using
-        the stored raw inputs (node_features, edge_index, agent_idx).
-        This ensures gradients flow back to the GAT parameters, making
-        the system truly end-to-end trainable.
+        Training stability improvements:
+            - Rewards are normalised by reward_scale before advantage computation
+            - PPO-style ratio clipping prevents destructive policy updates
+            - GAT is re-run with gradients for true end-to-end training
 
         Returns:
             Dict with loss components.
@@ -432,6 +440,15 @@ class MA2CAgent:
             return {"policy_loss": 0, "value_loss": 0, "entropy": 0, "total_loss": 0}
 
         cfg = self.config
+
+        # ── Reward normalisation ──
+        # Scale rewards before computing returns/advantages. This is
+        # critical for stability because raw rewards can range from -20
+        # to +100+, leading to huge gradients.
+        scaled_rewards = [r * cfg.reward_scale for r in self.rollout.rewards]
+        # Replace in-place so compute_returns_and_advantages uses scaled values
+        original_rewards = self.rollout.rewards
+        self.rollout.rewards = scaled_rewards
 
         # Compute last value for GAE
         with torch.no_grad():
@@ -444,6 +461,9 @@ class MA2CAgent:
             last_value, cfg.gamma, cfg.gae_lambda
         )
 
+        # Restore original rewards (so external tracking still works)
+        self.rollout.rewards = original_rewards
+
         # Normalise advantages
         if len(advantages) > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -452,6 +472,7 @@ class MA2CAgent:
         obs_batch = torch.stack(self.rollout.local_obs)
         gs_batch = torch.stack(self.rollout.global_states)
         actions_batch = torch.stack(self.rollout.actions)
+        old_log_probs = torch.stack(self.rollout.log_probs)
 
         # Re-run GAT with gradients IF raw inputs were stored
         has_raw_gat_inputs = (
@@ -462,7 +483,7 @@ class MA2CAgent:
 
         if has_raw_gat_inputs:
             # Re-run GAT for each timestep with gradients enabled
-            # This is the fix: gradients now flow back to GAT parameters
+            # This ensures gradients flow back to GAT parameters
             contexts_list = []
             for node_feats, edge_idx, agent_idx in zip(
                 self.rollout.gat_node_features,
@@ -483,8 +504,19 @@ class MA2CAgent:
 
         values = self.critic(obs_batch, ctx_batch, gs_batch).squeeze()
 
-        # Policy loss (advantage-weighted log probs)
-        policy_loss = -(new_log_probs * advantages.detach()).mean()
+        # ── Policy loss with PPO-style clipping ──
+        # The ratio measures how much the policy has changed since the rollout.
+        # Clipping this ratio prevents catastrophic policy updates.
+        if cfg.use_ppo_clip:
+            ratio = torch.exp(new_log_probs - old_log_probs.detach().squeeze())
+            surr1 = ratio * advantages.detach()
+            surr2 = torch.clamp(
+                ratio, 1.0 - cfg.ppo_clip_epsilon, 1.0 + cfg.ppo_clip_epsilon
+            ) * advantages.detach()
+            policy_loss = -torch.min(surr1, surr2).mean()
+        else:
+            # Vanilla A2C policy gradient
+            policy_loss = -(new_log_probs * advantages.detach()).mean()
 
         # Value loss
         value_loss = F.mse_loss(values, returns)

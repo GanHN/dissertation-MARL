@@ -524,6 +524,13 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
     """
     os.makedirs(config.save_dir, exist_ok=True)
 
+    # Optional tqdm progress bar
+    try:
+        from tqdm import tqdm
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
     # Initialise
     ma2c_config = MA2CConfig(learning_rate=config.learning_rate, gamma=config.gamma)
     agent = MA2CAgent(ma2c_config)
@@ -534,18 +541,39 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
     episode_lengths: List[int] = []
     loss_history: List[Dict] = []
 
+    # Track best model based on eval reward
+    best_eval_reward: float = -float("inf")
+    best_eval_episode: int = 0
+    eval_history: List[Tuple[int, float]] = []
+
     if verbose:
         print("=" * 60)
         print("MA2C Training")
-        print(f"  Episodes: {config.num_episodes}")
-        print(f"  Steps/episode: {config.steps_per_episode}")
-        print(f"  Vehicles: {config.num_vehicles} (MP={config.market_penetration:.0%})")
+        print(f"  Episodes:       {config.num_episodes}")
+        print(f"  Steps/episode:  {config.steps_per_episode}")
+        print(f"  Vehicles:       {config.num_vehicles} (MP={config.market_penetration:.0%})")
         print(f"  Rollout length: {config.rollout_length}")
+        print(f"  Learning rate:  {config.learning_rate}")
+        print(f"  Log interval:   every {config.log_interval} episodes")
+        print(f"  Save interval:  every {config.save_interval} episodes")
+        print(f"  Save dir:       {config.save_dir}")
         print("=" * 60)
 
     start_time = time.time()
 
-    for episode in range(config.num_episodes):
+    # Use tqdm for episode-level progress
+    if has_tqdm and verbose:
+        episode_iter = tqdm(
+            range(config.num_episodes),
+            desc="Training",
+            unit="ep",
+            ncols=100,
+            leave=True,
+        )
+    else:
+        episode_iter = range(config.num_episodes)
+
+    for episode in episode_iter:
         env.reset(seed=config.seed + episode)
         agent.set_train_mode()
 
@@ -632,43 +660,126 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
             losses = agent.update()
             loss_history.append(losses)
 
-        # Logging
+        # Update tqdm progress bar with live metrics every episode
+        if has_tqdm and verbose:
+            recent_window = min(10, len(episode_rewards))
+            avg_recent_reward = np.mean(episode_rewards[-recent_window:])
+            recent_loss = (
+                np.mean([l["total_loss"] for l in loss_history[-5:]])
+                if loss_history else 0.0
+            )
+            episode_iter.set_postfix({
+                "reward": f"{avg_recent_reward:.0f}",
+                "loss": f"{recent_loss:.2f}",
+                "updates": agent.total_updates,
+            })
+
+        # Detailed logging at log_interval
         if verbose and (episode + 1) % config.log_interval == 0:
             recent_rewards = episode_rewards[-config.log_interval:]
             avg_reward = np.mean(recent_rewards)
-            recent_loss = np.mean([l["total_loss"] for l in loss_history[-10:]]) if loss_history else 0
+            min_reward = np.min(recent_rewards)
+            max_reward = np.max(recent_rewards)
+
+            # Loss breakdown
+            recent_losses = loss_history[-10:] if loss_history else []
+            avg_total = np.mean([l["total_loss"] for l in recent_losses]) if recent_losses else 0
+            avg_policy = np.mean([l["policy_loss"] for l in recent_losses]) if recent_losses else 0
+            avg_value = np.mean([l["value_loss"] for l in recent_losses]) if recent_losses else 0
+            avg_entropy = np.mean([l["entropy"] for l in recent_losses]) if recent_losses else 0
+
             elapsed = time.time() - start_time
-            print(
-                f"  Episode {episode+1:4d}/{config.num_episodes} | "
-                f"avg_reward={avg_reward:8.1f} | "
-                f"loss={recent_loss:.4f} | "
-                f"updates={agent.total_updates} | "
-                f"time={elapsed:.0f}s"
-            )
+            eps_per_sec = (episode + 1) / elapsed
+            remaining_eps = config.num_episodes - (episode + 1)
+            eta_seconds = remaining_eps / eps_per_sec if eps_per_sec > 0 else 0
+            eta_min = eta_seconds / 60
+
+            # Print a detailed block (compatible with tqdm via .write)
+            log_lines = [
+                f"  Ep {episode+1:4d}/{config.num_episodes}  "
+                f"reward: avg={avg_reward:7.1f}  min={min_reward:7.1f}  max={max_reward:7.1f}",
+                f"            loss: total={avg_total:7.2f}  "
+                f"policy={avg_policy:+.3f}  value={avg_value:7.2f}  entropy={avg_entropy:.3f}",
+                f"            progress: {agent.total_updates} updates  "
+                f"elapsed={elapsed:.0f}s  ETA={eta_min:.1f}min",
+            ]
+            for line in log_lines:
+                if has_tqdm:
+                    tqdm.write(line)
+                else:
+                    print(line)
 
         # Save checkpoint
         if (episode + 1) % config.save_interval == 0:
             path = os.path.join(config.save_dir, f"checkpoint_ep{episode+1}.pt")
             agent.save(path)
             if verbose:
-                print(f"    Saved checkpoint: {path}")
+                msg = f"    Saved checkpoint: {path}"
+                if has_tqdm:
+                    tqdm.write(msg)
+                else:
+                    print(msg)
 
         # Periodic evaluation
         if (episode + 1) % config.eval_interval == 0:
             eval_reward = evaluate(agent, config, num_episodes=config.eval_episodes)
-            if verbose:
-                print(f"    Eval avg reward: {eval_reward:.1f}")
+            eval_history.append((episode + 1, eval_reward))
 
-    # Save final model
+            # Save best model if this eval is better than all previous
+            if eval_reward > best_eval_reward:
+                best_eval_reward = eval_reward
+                best_eval_episode = episode + 1
+                best_path = os.path.join(config.save_dir, "best_model.pt")
+                agent.save(best_path)
+                if verbose:
+                    msg = f"    Eval avg reward: {eval_reward:.1f}  ★ NEW BEST (saved best_model.pt)"
+                    if has_tqdm:
+                        tqdm.write(msg)
+                    else:
+                        print(msg)
+            else:
+                if verbose:
+                    msg = f"    Eval avg reward: {eval_reward:.1f}  (best: {best_eval_reward:.1f} at ep{best_eval_episode})"
+                    if has_tqdm:
+                        tqdm.write(msg)
+                    else:
+                        print(msg)
+
+    # ── Final model selection ──
+    # Save the LAST model under a separate name for reference
+    last_path = os.path.join(config.save_dir, "last_model.pt")
+    agent.save(last_path)
+
+    # Use the best-eval model as the final model
+    # This prevents a destabilised late-training model from overwriting
+    # a well-performing earlier one.
     final_path = os.path.join(config.save_dir, "final_model.pt")
-    agent.save(final_path)
-    if verbose:
-        print(f"\nTraining complete. Model saved to {final_path}")
-        print(f"Total updates: {agent.total_updates}")
-        print(f"Total time: {time.time() - start_time:.0f}s")
+    best_path = os.path.join(config.save_dir, "best_model.pt")
+
+    if os.path.exists(best_path):
+        # Copy best_model to final_model
+        import shutil
+        shutil.copy2(best_path, final_path)
+        if verbose:
+            print(f"\nTraining complete.")
+            print(f"  Best eval reward: {best_eval_reward:.1f} (episode {best_eval_episode})")
+            print(f"  Final model (= best model): {final_path}")
+            print(f"  Last-episode model:         {last_path}")
+            print(f"  Total updates: {agent.total_updates}")
+            print(f"  Total time: {time.time() - start_time:.0f}s")
+    else:
+        # No eval happened — just save the last one as final
+        agent.save(final_path)
+        if verbose:
+            print(f"\nTraining complete. Model saved to {final_path}")
+            print(f"  Total updates: {agent.total_updates}")
+            print(f"  Total time: {time.time() - start_time:.0f}s")
 
     # Save training curves
     _save_training_curves(episode_rewards, loss_history, config.save_dir)
+
+    # Also save a CSV of the full training log for reports
+    _save_training_log_csv(episode_rewards, loss_history, config.save_dir)
 
     return agent
 
@@ -727,6 +838,40 @@ def evaluate(
 
 # ── Training Curves ──────────────────────────────────────────────────────────
 
+def _save_training_log_csv(
+    rewards: List[float],
+    losses: List[Dict],
+    save_dir: str,
+) -> None:
+    """Save a CSV of per-episode rewards and per-update losses for analysis."""
+    import csv
+
+    # Episode rewards
+    reward_path = os.path.join(save_dir, "training_rewards.csv")
+    with open(reward_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["episode", "reward"])
+        for i, r in enumerate(rewards):
+            writer.writerow([i + 1, r])
+
+    # Losses
+    if losses:
+        loss_path = os.path.join(save_dir, "training_losses.csv")
+        with open(loss_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["update", "total_loss", "policy_loss", "value_loss", "entropy"])
+            for i, l in enumerate(losses):
+                writer.writerow([
+                    i + 1,
+                    l.get("total_loss", 0),
+                    l.get("policy_loss", 0),
+                    l.get("value_loss", 0),
+                    l.get("entropy", 0),
+                ])
+    print(f"  Saved: {save_dir}/training_rewards.csv")
+    print(f"  Saved: {save_dir}/training_losses.csv")
+
+
 def _save_training_curves(
     rewards: List[float],
     losses: List[Dict],
@@ -783,6 +928,7 @@ if __name__ == "__main__":
     parser.add_argument("--vehicles", type=int, default=20, help="Number of vehicles")
     parser.add_argument("--eval", action="store_true", help="Evaluate saved model")
     parser.add_argument("--save-dir", default="results/marl", help="Save directory")
+    parser.add_argument("--log-interval", type=int, default=0, help="Log every N episodes (0=auto, every 10%% of episodes)")
     args = parser.parse_args()
 
     config = TrainConfig()
@@ -790,7 +936,7 @@ if __name__ == "__main__":
     config.steps_per_episode = args.steps
     config.num_vehicles = args.vehicles
     config.save_dir = args.save_dir
-    config.log_interval = max(1, args.episodes // 10)
+    config.log_interval = args.log_interval if args.log_interval > 0 else max(1, args.episodes // 10)
     config.save_interval = max(1, args.episodes // 4)
     config.eval_interval = max(1, args.episodes // 4)
 
