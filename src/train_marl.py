@@ -71,7 +71,7 @@ class TrainConfig:
     num_episodes: int = 200
     steps_per_episode: int = 100
     rollout_length: int = 16
-    learning_rate: float = 3e-4
+    learning_rate: float = 5e-5
     gamma: float = 0.99
     seed: int = 42
 
@@ -531,8 +531,15 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
     except ImportError:
         has_tqdm = False
 
-    # Initialise
-    ma2c_config = MA2CConfig(learning_rate=config.learning_rate, gamma=config.gamma)
+    ma2c_config = MA2CConfig(
+    learning_rate=config.learning_rate,
+    gamma=config.gamma,
+    use_ppo_clip=True,
+    reward_scale=0.01,
+    ppo_clip_epsilon=0.2,
+    max_grad_norm=0.3,
+    entropy_coeff=0.02,
+    )
     agent = MA2CAgent(ma2c_config)
     env = MARLEnvironment(config)
 
