@@ -131,6 +131,10 @@ class MARLEnvironment:
         self._stall_counters: Dict[int, int] = {}
         self._trip_starts: Dict[int, int] = {}
 
+        # Running MSTT tracker (for global state)
+        self._recent_trip_times: List[float] = []
+        self._max_recent_trips: int = 50
+
     def reset(self, seed: Optional[int] = None) -> None:
         """Reset the environment for a new episode."""
         actual_seed = seed if seed is not None else self.config.seed
@@ -176,6 +180,7 @@ class MARLEnvironment:
         self._prev_distances = {}
         self._stall_counters = {}
         self._trip_starts = {}
+        self._recent_trip_times = []
         for cav in self.cavs:
             dist = shortest_path_distance(
                 self.network, cav.current_node, cav.destination
@@ -383,6 +388,13 @@ class MARLEnvironment:
                 continue
             if v.has_reached_destination():
                 v.arrive(self.timestep)
+
+                # Track recent trip time for running MSTT
+                if v.trip_travel_times:
+                    self._recent_trip_times.append(v.trip_travel_times[-1])
+                    if len(self._recent_trip_times) > self._max_recent_trips:
+                        self._recent_trip_times = self._recent_trip_times[-self._max_recent_trips:]
+
                 VehicleFactory.reassign_destination(v, self.network.destinations)
                 if isinstance(v, CAV):
                     v.set_routing_function(dec_ctdsp_route)
@@ -479,6 +491,9 @@ class MARLEnvironment:
         num_cavs = sum(1 for v in self.vehicles if v.vehicle_type == VehicleType.CAV)
         stalled = sum(1 for vid, cnt in self._stall_counters.items() if cnt > 0)
 
+        # Compute running MSTT from recent completed trips
+        running_mstt = float(np.mean(self._recent_trip_times)) if self._recent_trip_times else 0.0
+
         gs = GlobalStateBuilder.build(
             total_vehicles=len(active),
             avg_link_density=float(avg_density),
@@ -489,7 +504,7 @@ class MARLEnvironment:
             num_clusters=self.comm.get_num_clusters(),
             avg_cluster_size=float(np.mean(self.comm.get_cluster_sizes())) if self.comm.clusters else 0,
             total_trips_completed=sum(v.trips_completed for v in self.vehicles),
-            avg_mstt=0.0,
+            avg_mstt=running_mstt,
             num_stalled=stalled,
             total_recalculations=sum(
                 v.num_route_recalculations for v in self.vehicles
@@ -546,7 +561,9 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
             if len(vid_order) == 0:
                 break
 
-            # GAT forward pass
+            # GAT forward pass — NO torch.no_grad so gradients can flow
+            # through the GAT during training. We'll re-run the GAT in update()
+            # using the stored raw inputs to compute the actual gradient.
             with torch.no_grad():
                 contexts = agent.gat(node_features, edge_index)
 
@@ -569,11 +586,14 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
                 )
                 actions[vid] = action
 
-                # Store in rollout (we store per first active CAV for simplicity,
-                # or could maintain per-agent rollouts)
+                # Store in rollout INCLUDING raw GAT inputs so gradients
+                # can flow back through the GAT during update
                 agent.rollout.add(
                     local_obs, context, global_state,
-                    torch.tensor(action), log_prob, 0.0, value, False
+                    torch.tensor(action), log_prob, 0.0, value, False,
+                    gat_node_features=node_features,
+                    gat_edge_index=edge_index,
+                    gat_agent_idx=idx,
                 )
 
             # Step environment

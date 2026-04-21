@@ -223,6 +223,10 @@ class RolloutStorage:
     Each entry is one (state, action, reward, value, log_prob) tuple
     for one agent at one timestep. After rollout_length steps, the
     data is used to compute advantages and update the networks.
+
+    To allow gradients to flow through the GAT during updates, we
+    also store the raw GAT inputs (node_features, edge_index, agent_idx)
+    so the GAT can be re-run with gradients enabled in update().
     """
 
     def __init__(self):
@@ -234,6 +238,10 @@ class RolloutStorage:
         self.rewards: List[float] = []
         self.values: List[torch.Tensor] = []
         self.dones: List[bool] = []
+        # For gradient flow through GAT: store raw inputs
+        self.gat_node_features: List[torch.Tensor] = []
+        self.gat_edge_indices: List[torch.Tensor] = []
+        self.gat_agent_indices: List[int] = []
 
     def add(
         self,
@@ -245,6 +253,9 @@ class RolloutStorage:
         reward: float,
         value: torch.Tensor,
         done: bool,
+        gat_node_features: Optional[torch.Tensor] = None,
+        gat_edge_index: Optional[torch.Tensor] = None,
+        gat_agent_idx: Optional[int] = None,
     ) -> None:
         """Add one experience tuple."""
         self.local_obs.append(local_obs.detach())
@@ -255,6 +266,13 @@ class RolloutStorage:
         self.rewards.append(reward)
         self.values.append(value.detach())
         self.dones.append(done)
+        # Store raw GAT inputs for re-running with gradients
+        if gat_node_features is not None:
+            self.gat_node_features.append(gat_node_features.detach())
+        if gat_edge_index is not None:
+            self.gat_edge_indices.append(gat_edge_index.detach())
+        if gat_agent_idx is not None:
+            self.gat_agent_indices.append(gat_agent_idx)
 
     def compute_returns_and_advantages(
         self,
@@ -302,6 +320,9 @@ class RolloutStorage:
         self.rewards.clear()
         self.values.clear()
         self.dones.clear()
+        self.gat_node_features.clear()
+        self.gat_edge_indices.clear()
+        self.gat_agent_indices.clear()
 
     def __len__(self) -> int:
         return len(self.rewards)
@@ -399,6 +420,11 @@ class MA2CAgent:
             - Value function loss (critic)
             - Entropy bonus (for exploration)
 
+        IMPORTANT: The GAT is re-run with gradients enabled here, using
+        the stored raw inputs (node_features, edge_index, agent_idx).
+        This ensures gradients flow back to the GAT parameters, making
+        the system truly end-to-end trainable.
+
         Returns:
             Dict with loss components.
         """
@@ -424,12 +450,33 @@ class MA2CAgent:
 
         # Stack rollout data
         obs_batch = torch.stack(self.rollout.local_obs)
-        ctx_batch = torch.stack(self.rollout.contexts)
         gs_batch = torch.stack(self.rollout.global_states)
         actions_batch = torch.stack(self.rollout.actions)
-        old_log_probs = torch.stack(self.rollout.log_probs)
 
-        # Forward pass
+        # Re-run GAT with gradients IF raw inputs were stored
+        has_raw_gat_inputs = (
+            len(self.rollout.gat_node_features) == len(self.rollout)
+            and len(self.rollout.gat_edge_indices) == len(self.rollout)
+            and len(self.rollout.gat_agent_indices) == len(self.rollout)
+        )
+
+        if has_raw_gat_inputs:
+            # Re-run GAT for each timestep with gradients enabled
+            # This is the fix: gradients now flow back to GAT parameters
+            contexts_list = []
+            for node_feats, edge_idx, agent_idx in zip(
+                self.rollout.gat_node_features,
+                self.rollout.gat_edge_indices,
+                self.rollout.gat_agent_indices,
+            ):
+                all_contexts = self.gat(node_feats, edge_idx)
+                contexts_list.append(all_contexts[agent_idx])
+            ctx_batch = torch.stack(contexts_list)
+        else:
+            # Fallback: use stored (detached) contexts — no GAT gradient flow
+            ctx_batch = torch.stack(self.rollout.contexts)
+
+        # Forward pass through actor and critic
         dist = self.actor(obs_batch, ctx_batch)
         new_log_probs = dist.log_prob(actions_batch.squeeze())
         entropy = dist.entropy().mean()

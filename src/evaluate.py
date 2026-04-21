@@ -1,5 +1,5 @@
 """
-evaluate.py - Evaluation & Benchmarking Suite
+evaluate.py
 Runs systematic experiments sweeping Market Penetration (MP) and
 Communication Radius (CR), then produces plots for the report.
 
