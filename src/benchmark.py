@@ -17,6 +17,7 @@ Metrics compared:
     - Total trips completed (throughput)
     - Standard deviation of MSTT (reliability)
     - Number of stalled vehicles
+    - Collision rates **
 
 Outputs:
     - benchmark_mstt.png         Bar chart comparing MSTT across configs
@@ -245,6 +246,7 @@ def _run_with_trained_agent(
     total_trips = 0
     mstt_history = []
     speeds_history = []
+    prev_total_wait = 0
 
     for step in range(cfg.max_timesteps):
         # Optionally clear blacklists (disables OMM)
@@ -304,9 +306,12 @@ def _run_with_trained_agent(
         if active_speeds:
             speeds_history.append(np.mean(active_speeds))
 
-        # Wait tracking (approximate: count stalled vehicles each step)
-        stalled_now = sum(1 for cnt in env._stall_counters.values() if cnt > 0)
-        total_wait_steps += stalled_now
+        # Wait tracking: system-wide cumulative wait across all vehicles
+        # (CAV + HDV), aligned with Simulator-based configs.
+        curr_total_wait = sum(v.total_wait_time for v in env.vehicles)
+        step_wait = max(0, curr_total_wait - prev_total_wait)
+        total_wait_steps += step_wait
+        prev_total_wait = curr_total_wait
 
     # Compute final summary
     final_mstt = float(np.mean(mstt_history[-100:])) if len(mstt_history) >= 10 else (
