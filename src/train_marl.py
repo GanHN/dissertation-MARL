@@ -321,7 +321,17 @@ class MARLEnvironment:
                 cav.compute_route(
                     self.network, self.timestep, cluster_vehicles=cluster
                 )
-                if not blocked_ahead:
+                # Re-check blockage using the newly recomputed route.
+                next_after = cav.get_next_node()
+                blocked_after = (
+                    next_after is not None
+                    and self.network.is_node_blocked(next_after)
+                )
+                if blocked_after and next_after is not None:
+                    self.comm.broadcast_obstacle(
+                        cav, next_after, self.vehicles, self.timestep
+                    )
+                if not blocked_after:
                     moved = self._advance_vehicle(cav)
                     is_stalled = not moved
                 else:
@@ -830,7 +840,7 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
                 best_path = os.path.join(config.save_dir, "best_model.pt")
                 agent.save(best_path)
                 if verbose:
-                    msg = f"    Eval avg reward: {eval_reward:.1f}  ★ NEW BEST (saved best_model.pt)"
+                    msg = f"    Eval avg reward: {eval_reward:.1f}  NEW BEST (saved best_model.pt)"
                     if has_tqdm:
                         tqdm.write(msg)
                     else:
