@@ -339,6 +339,7 @@ class MARLEnvironment:
 
         # Update stall counter
         if is_stalled:
+            cav.total_wait_time += 1
             self._stall_counters[cav.vehicle_id] = (
                 self._stall_counters.get(cav.vehicle_id, 0) + 1
             )
@@ -452,10 +453,14 @@ class MARLEnvironment:
         if v.is_at_intersection():
             next_node = v.get_next_node()
             if next_node is None:
+                v.total_wait_time += 1
                 return
             if self.network.is_node_blocked(next_node):
+                v.total_wait_time += 1
                 return
-        self._advance_vehicle(v)
+        moved = self._advance_vehicle(v)
+        if not moved:
+            v.total_wait_time += 1
 
     def _handle_arrivals(self) -> None:
         """Reset arrived vehicles for new trips."""
