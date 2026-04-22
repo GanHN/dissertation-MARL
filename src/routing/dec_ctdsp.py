@@ -169,6 +169,7 @@ def build_time_dependent_network(
     # Case 2: Simulate vehicle movements
     # Create lightweight copies of vehicle positions and routes
     sim_vehicles = []
+    cluster_vehicle_ids = {v.vehicle_id for v in cluster_vehicles}
     for v in cluster_vehicles:
         remaining_route = v.get_remaining_route()
         sim_vehicles.append({
@@ -200,9 +201,15 @@ def build_time_dependent_network(
             edge_data = network.graph.edges[u, v]
             density = edge_density.get((u, v), 0)
 
-            # Also include vehicles already on the network (from graph state)
-            existing = len(edge_data["current_vehicles"])
-            total_density = density + existing
+            # Include live vehicles outside the communication cluster as
+            # background traffic. Cluster vehicles are already represented by
+            # the simulated density above, so we exclude them here.
+            existing_noncluster = sum(
+                1
+                for vid in edge_data["current_vehicles"]
+                if vid not in cluster_vehicle_ids
+            )
+            total_density = density + existing_noncluster
 
             tt = compute_travel_time(
                 density=total_density,

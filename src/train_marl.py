@@ -496,6 +496,9 @@ class MARLEnvironment:
         if not active_cavs:
             return torch.zeros((0, 8)), torch.zeros((2, 0), dtype=torch.long), []
 
+        # Keep communication clusters fresh for the current decision step.
+        self.comm.update_clusters(self.vehicles, self.network)
+
         features = []
         vid_order = []
 
@@ -519,7 +522,24 @@ class MARLEnvironment:
             vid_order.append(cav.vehicle_id)
 
         node_features = torch.tensor(features, dtype=torch.float32)
-        edge_index = build_cluster_graph(list(range(len(active_cavs))))
+
+        # Build graph as disjoint fully-connected subgraphs, one per
+        # communication cluster. No cross-cluster edges are allowed.
+        vid_to_local_idx = {vid: i for i, vid in enumerate(vid_order)}
+        edge_chunks = []
+        for cluster_ids in self.comm.clusters:
+            local_cluster = [
+                vid_to_local_idx[vid]
+                for vid in cluster_ids
+                if vid in vid_to_local_idx
+            ]
+            if len(local_cluster) >= 2:
+                edge_chunks.append(build_cluster_graph(local_cluster))
+
+        if edge_chunks:
+            edge_index = torch.cat(edge_chunks, dim=1)
+        else:
+            edge_index = torch.zeros((2, 0), dtype=torch.long)
 
         return node_features, edge_index, vid_order
 
@@ -675,6 +695,7 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
                     gat_node_features=node_features,
                     gat_edge_index=edge_index,
                     gat_agent_idx=idx,
+                    agent_id=vid,
                 )
 
             # Step environment

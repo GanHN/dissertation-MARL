@@ -231,9 +231,30 @@ class GATNetwork(nn.Module):
                     x = F.elu(x)
                     x = F.dropout(x, p=self.config.dropout, training=self.training)
         else:
-            # Fallback: self-attention over all nodes
+            # Fallback attention that respects communication edges.
+            # edge_index uses PyG direction: src -> dst.
+            # In attention terms, query(dst) can attend to key(src).
             x_unsq = x.unsqueeze(0)  # [1, N, hidden]
-            attn_out, _ = self.attention(x_unsq, x_unsq, x_unsq)
+            attn_mask = None
+            if edge_index is not None:
+                num_nodes = x.shape[0]
+                allowed = torch.eye(num_nodes, dtype=torch.bool, device=x.device)
+                if edge_index.numel() > 0:
+                    src = edge_index[0].to(device=x.device, dtype=torch.long)
+                    dst = edge_index[1].to(device=x.device, dtype=torch.long)
+                    valid = (
+                        (src >= 0) & (src < num_nodes)
+                        & (dst >= 0) & (dst < num_nodes)
+                    )
+                    if valid.any():
+                        allowed[dst[valid], src[valid]] = True
+
+                # nn.MultiheadAttention expects True for masked positions.
+                attn_mask = ~allowed
+
+            attn_out, _ = self.attention(
+                x_unsq, x_unsq, x_unsq, attn_mask=attn_mask
+            )
             x = self.attn_norm(x + attn_out.squeeze(0))
 
         # Output projection
@@ -264,24 +285,22 @@ def build_cluster_graph(
     (multi-hop connectivity). So the graph is fully connected.
 
     Args:
-        cluster_vehicle_ids: List of vehicle IDs in the cluster.
-                             Indices in the node feature tensor.
+        cluster_vehicle_ids: List of node indices in the node feature tensor.
 
     Returns:
         edge_index: [2, num_edges] tensor for PyG.
     """
-    num_nodes = len(cluster_vehicle_ids)
-    if num_nodes <= 1:
+    if len(cluster_vehicle_ids) <= 1:
         return torch.zeros((2, 0), dtype=torch.long)
 
-    # Fully connected (excluding self-loops)
+    # Fully connected within this cluster (excluding self-loops)
     src = []
     dst = []
-    for i in range(num_nodes):
-        for j in range(num_nodes):
-            if i != j:
-                src.append(i)
-                dst.append(j)
+    for src_idx in cluster_vehicle_ids:
+        for dst_idx in cluster_vehicle_ids:
+            if src_idx != dst_idx:
+                src.append(src_idx)
+                dst.append(dst_idx)
 
     return torch.tensor([src, dst], dtype=torch.long)
 

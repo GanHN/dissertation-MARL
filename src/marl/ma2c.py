@@ -246,6 +246,7 @@ class RolloutStorage:
         self.rewards: List[float] = []
         self.values: List[torch.Tensor] = []
         self.dones: List[bool] = []
+        self.agent_ids: List[int] = []
         # For gradient flow through GAT: store raw inputs
         self.gat_node_features: List[torch.Tensor] = []
         self.gat_edge_indices: List[torch.Tensor] = []
@@ -261,6 +262,7 @@ class RolloutStorage:
         reward: float,
         value: torch.Tensor,
         done: bool,
+        agent_id: Optional[int] = None,
         gat_node_features: Optional[torch.Tensor] = None,
         gat_edge_index: Optional[torch.Tensor] = None,
         gat_agent_idx: Optional[int] = None,
@@ -274,6 +276,7 @@ class RolloutStorage:
         self.rewards.append(reward)
         self.values.append(value.detach())
         self.dones.append(done)
+        self.agent_ids.append(int(agent_id) if agent_id is not None else -1)
         # Store raw GAT inputs for re-running with gradients
         if gat_node_features is not None:
             self.gat_node_features.append(gat_node_features.detach())
@@ -282,36 +285,46 @@ class RolloutStorage:
         if gat_agent_idx is not None:
             self.gat_agent_indices.append(gat_agent_idx)
 
-    def compute_returns_and_advantages(
+    def compute_returns_and_advantages_per_agent(
         self,
-        last_value: float,
         gamma: float = 0.99,
         gae_lambda: float = 0.95,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Compute GAE advantages and discounted returns.
-
-        Uses Generalized Advantage Estimation (GAE) for lower-variance
-        advantage estimates, which is standard for A2C/PPO algorithms.
+        Compute GAE returns/advantages per-agent trajectory.
         """
-        rewards = self.rewards
-        values = [v.item() for v in self.values]
-        dones = self.dones
+        num_steps = len(self.rewards)
+        advantages = np.zeros(num_steps, dtype=np.float32)
+        returns = np.zeros(num_steps, dtype=np.float32)
 
-        num_steps = len(rewards)
-        advantages = np.zeros(num_steps)
-        returns = np.zeros(num_steps)
+        indices_by_agent: Dict[int, List[int]] = {}
+        for idx, aid in enumerate(self.agent_ids):
+            indices_by_agent.setdefault(aid, []).append(idx)
 
-        gae = 0.0
-        next_value = last_value
+        for _, idxs in indices_by_agent.items():
+            if not idxs:
+                continue
+            last_idx = idxs[-1]
+            next_value = 0.0 if self.dones[last_idx] else self.values[last_idx].item()
+            gae = 0.0
 
-        for t in reversed(range(num_steps)):
-            mask = 0.0 if dones[t] else 1.0
-            delta = rewards[t] + gamma * next_value * mask - values[t]
-            gae = delta + gamma * gae_lambda * mask * gae
-            advantages[t] = gae
-            returns[t] = advantages[t] + values[t]
-            next_value = values[t]
+            for pos in reversed(range(len(idxs))):
+                idx = idxs[pos]
+                reward = self.rewards[idx]
+                value = self.values[idx].item()
+                done = self.dones[idx]
+
+                if pos == len(idxs) - 1:
+                    next_val_for_delta = next_value
+                else:
+                    next_idx = idxs[pos + 1]
+                    next_val_for_delta = self.values[next_idx].item()
+
+                mask = 0.0 if done else 1.0
+                delta = reward + gamma * next_val_for_delta * mask - value
+                gae = delta + gamma * gae_lambda * mask * gae
+                advantages[idx] = gae
+                returns[idx] = gae + value
 
         return (
             torch.tensor(returns, dtype=torch.float32),
@@ -328,6 +341,7 @@ class RolloutStorage:
         self.rewards.clear()
         self.values.clear()
         self.dones.clear()
+        self.agent_ids.clear()
         self.gat_node_features.clear()
         self.gat_edge_indices.clear()
         self.gat_agent_indices.clear()
@@ -450,15 +464,8 @@ class MA2CAgent:
         original_rewards = self.rollout.rewards
         self.rollout.rewards = scaled_rewards
 
-        # Compute last value for GAE
-        with torch.no_grad():
-            last_obs = self.rollout.local_obs[-1].unsqueeze(0)
-            last_ctx = self.rollout.contexts[-1].unsqueeze(0)
-            last_gs = self.rollout.global_states[-1].unsqueeze(0)
-            last_value = self.critic(last_obs, last_ctx, last_gs).item()
-
-        returns, advantages = self.rollout.compute_returns_and_advantages(
-            last_value, cfg.gamma, cfg.gae_lambda
+        returns, advantages = self.rollout.compute_returns_and_advantages_per_agent(
+            cfg.gamma, cfg.gae_lambda
         )
 
         # Restore original rewards (so external tracking still works)
