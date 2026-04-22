@@ -361,6 +361,15 @@ class Simulator:
             if v.state == VehicleState.ARRIVED or v.state == VehicleState.WAITING:
                 continue
 
+            # If already traversing a link, continue continuous movement.
+            # Routing and obstacle decisions are made at intersections.
+            if not v.is_at_intersection():
+                moved = self._move_vehicle(v, t)
+                if not moved:
+                    v.total_wait_time += 1
+                    self.metrics.total_wait_timesteps += 1
+                continue
+
             # Check if vehicle is at a blocked node
             if self.network.is_node_blocked(v.current_node):
                 v.total_wait_time += 1
@@ -403,49 +412,76 @@ class Simulator:
 
     # ── Vehicle Movement ─────────────────────────────────────────────────
 
-    def _move_vehicle(self, v: Vehicle, t: int) -> None:
+    def _move_vehicle(self, v: Vehicle, t: int) -> bool:
         """
-        Advance a vehicle one step along its route.
+        Advance a vehicle continuously along its current route.
 
         At each intersection, CAVs can recompute their route using
         Dec-CTDSP with current cluster information.
         """
-        next_node = v.get_next_node()
-        if next_node is None:
-            return
-
-        # Remove from current link (if tracked)
-        prev_node = v.current_node
-        if self.network.graph.has_edge(prev_node, next_node):
-            self.network.remove_vehicle_from_link(v.vehicle_id, prev_node, next_node)
-
-        # Compute speed based on link density
-        if self.network.graph.has_edge(prev_node, next_node):
-            from src.environment.grid_network import speed_density
-            density = self.network.get_edge_density(prev_node, next_node)
-            v.speed = speed_density(
-                density,
-                self.network.config.link_capacity,
-                self.network.config.speed_limit,
+        # If at an intersection, start traversal of the next link.
+        if v.is_at_intersection():
+            next_node = v.get_next_node()
+            if next_node is None:
+                v.speed = 0.0
+                return False
+            if not self.network.graph.has_edge(v.current_node, next_node):
+                v.speed = 0.0
+                return False
+            entered = self.network.place_vehicle_on_link(
+                v.vehicle_id, v.current_node, next_node
             )
+            if not entered:
+                v.speed = 0.0
+                return False
+            v.start_link_traversal(next_node)
 
-        # Advance to next node
-        v.advance_route()
+        start = v.link_start_node
+        end = v.link_end_node
+        if start is None or end is None:
+            v.speed = 0.0
+            return False
+
+        # If the destination intersection became blocked, hold on the link.
+        if self.network.is_node_blocked(end):
+            v.speed = 0.0
+            return False
+
+        from src.environment.grid_network import speed_density
+        density = self.network.get_edge_density(start, end)
+        v.speed = speed_density(
+            density,
+            self.network.config.link_capacity,
+            self.network.config.speed_limit,
+        )
+        if v.speed <= 1e-8:
+            # If we just entered and immediately hit zero-speed gridlock,
+            # roll back entry so we do not permanently saturate the link.
+            if v.link_progress <= 1e-8:
+                self.network.remove_vehicle_from_link(v.vehicle_id, start, end)
+                v.clear_link_traversal()
+            v.speed = 0.0
+            return False
+
+        reached = v.move_along_current_link(
+            distance_blocks=v.speed,
+            block_length=self.network.config.block_length,
+        )
         v.total_travel_time += 1
 
-        # Place on next link (if continuing)
-        next_next = v.get_next_node()
-        if next_next is not None and self.network.graph.has_edge(v.current_node, next_next):
-            self.network.place_vehicle_on_link(v.vehicle_id, v.current_node, next_next)
+        if reached:
+            self.network.remove_vehicle_from_link(v.vehicle_id, start, end)
+            next_next = v.get_next_node()
 
-        # CAV at intersection: optionally reroute with updated info
-        # Paper: "each vehicle would update their route when they reach an intersection"
-        if isinstance(v, CAV) and next_next is not None:
-            cluster = self.comm_manager.get_cluster_members(
-                v.vehicle_id, self.vehicles
-            )
-            if cluster:  # Only reroute if cluster has useful info
-                v.compute_route(self.network, t, cluster_vehicles=cluster)
+            # CAV at intersection: optionally reroute with updated info
+            # Paper: "each vehicle would update their route when they reach an intersection"
+            if isinstance(v, CAV) and next_next is not None:
+                cluster = self.comm_manager.get_cluster_members(
+                    v.vehicle_id, self.vehicles
+                )
+                if cluster:  # Only reroute if cluster has useful info
+                    v.compute_route(self.network, t, cluster_vehicles=cluster)
+        return True
 
     # ── Arrival Handling ─────────────────────────────────────────────────
 

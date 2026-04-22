@@ -18,8 +18,8 @@ From the Dec-CTDSP paper:
      multi-hop connections."
 
 Key design decisions:
-    - Direct radius: two CAVs are "directly connected" if their
-      Euclidean distance <= CR.
+    - Direct radius: CR is specified in block units and applied as a
+      radial Euclidean range around each vehicle's continuous position.
     - Multi-hop clusters: if A connects to B and B connects to C,
       then A, B, C are all in the same cluster (transitive closure).
       This matches the paper's "fully connected multi-hop network".
@@ -130,7 +130,6 @@ class CommunicationManager:
 
         cr = self.config.communication_radius
         cav_ids = [v.vehicle_id for v in active_cavs]
-        id_to_cav = {v.vehicle_id: v for v in active_cavs}
 
         # Build adjacency: which CAVs are within direct CR of each other?
         adjacency: Dict[int, Set[int]] = {vid: set() for vid in cav_ids}
@@ -138,9 +137,9 @@ class CommunicationManager:
         for i, cav_a in enumerate(active_cavs):
             for j in range(i + 1, len(active_cavs)):
                 cav_b = active_cavs[j]
-                dist = network.euclidean_distance(
-                    cav_a.current_node, cav_b.current_node
-                )
+                ax, ay = cav_a.get_continuous_position(network)
+                bx, by = cav_b.get_continuous_position(network)
+                dist = ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
                 if dist <= cr:
                     adjacency[cav_a.vehicle_id].add(cav_b.vehicle_id)
                     adjacency[cav_b.vehicle_id].add(cav_a.vehicle_id)

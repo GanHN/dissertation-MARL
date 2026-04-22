@@ -239,58 +239,72 @@ class MARLEnvironment:
         prev_dist = self._prev_distances.get(cav.vehicle_id, 0.0)
         is_stalled = False
 
-        # Check for obstacles
-        next_node = cav.get_next_node()
-        blocked_ahead = (
-            next_node is not None
-            and self.network.is_node_blocked(next_node)
-        )
+        # Mid-link movement is continuous; actions are only applied
+        # when the vehicle is at an intersection.
+        if not cav.is_at_intersection():
+            if cav.link_end_node is not None and self.network.is_node_blocked(cav.link_end_node):
+                self.comm.broadcast_obstacle(
+                    cav, cav.link_end_node, self.vehicles, self.timestep
+                )
+            moved = self._advance_vehicle(cav)
+            is_stalled = not moved
 
-        if blocked_ahead and isinstance(cav, CAV):
-            self.comm.broadcast_obstacle(
-                cav, next_node, self.vehicles, self.timestep
+        else:
+            # Check for obstacles
+            next_node = cav.get_next_node()
+            blocked_ahead = (
+                next_node is not None
+                and self.network.is_node_blocked(next_node)
             )
 
-        # Execute action
-        if action == 0:  # Follow Dec-CTDSP route
-            if blocked_ahead:
-                is_stalled = True
+            if blocked_ahead and isinstance(cav, CAV):
+                self.comm.broadcast_obstacle(
+                    cav, next_node, self.vehicles, self.timestep
+                )
+
+            # Execute action
+            if action == 0:  # Follow Dec-CTDSP route
+                if blocked_ahead:
+                    is_stalled = True
+                    cluster = self.comm.get_cluster_members(
+                        cav.vehicle_id, self.vehicles
+                    )
+                    cav.compute_route(
+                        self.network, self.timestep, cluster_vehicles=cluster
+                    )
+                else:
+                    moved = self._advance_vehicle(cav)
+                    is_stalled = not moved
+
+            elif action == 1:  # Alternative route
+                cav._fallback_dijkstra(self.network, cav.get_blacklisted_nodes())
                 cluster = self.comm.get_cluster_members(
                     cav.vehicle_id, self.vehicles
                 )
                 cav.compute_route(
                     self.network, self.timestep, cluster_vehicles=cluster
                 )
-            else:
-                self._advance_vehicle(cav)
+                if not blocked_ahead:
+                    moved = self._advance_vehicle(cav)
+                    is_stalled = not moved
+                else:
+                    is_stalled = True
 
-        elif action == 1:  # Alternative route
-            cav._fallback_dijkstra(self.network, cav.get_blacklisted_nodes())
-            cluster = self.comm.get_cluster_members(
-                cav.vehicle_id, self.vehicles
-            )
-            cav.compute_route(
-                self.network, self.timestep, cluster_vehicles=cluster
-            )
-            if not blocked_ahead:
-                self._advance_vehicle(cav)
-            else:
+            elif action == 2:  # Wait
                 is_stalled = True
 
-        elif action == 2:  # Wait
-            is_stalled = True
-
-        elif action == 3:  # Reroute
-            cluster = self.comm.get_cluster_members(
-                cav.vehicle_id, self.vehicles
-            )
-            cav.compute_route(
-                self.network, self.timestep, cluster_vehicles=cluster
-            )
-            if not blocked_ahead:
-                self._advance_vehicle(cav)
-            else:
-                is_stalled = True
+            elif action == 3:  # Reroute
+                cluster = self.comm.get_cluster_members(
+                    cav.vehicle_id, self.vehicles
+                )
+                cav.compute_route(
+                    self.network, self.timestep, cluster_vehicles=cluster
+                )
+                if not blocked_ahead:
+                    moved = self._advance_vehicle(cav)
+                    is_stalled = not moved
+                else:
+                    is_stalled = True
 
         # Update stall counter
         if is_stalled:
@@ -306,10 +320,16 @@ class MARLEnvironment:
         )
 
         # Compute link density ratio
-        next_n = cav.get_next_node()
-        if next_n and self.network.graph.has_edge(cav.current_node, next_n):
-            density = self.network.get_edge_density(cav.current_node, next_n)
-            capacity = self.network.graph.edges[cav.current_node, next_n]["capacity"]
+        if cav.link_start_node is not None and cav.link_end_node is not None:
+            from_n = cav.link_start_node
+            to_n = cav.link_end_node
+        else:
+            from_n = cav.current_node
+            to_n = cav.get_next_node()
+
+        if to_n and self.network.graph.has_edge(from_n, to_n):
+            density = self.network.get_edge_density(from_n, to_n)
+            capacity = self.network.graph.edges[from_n, to_n]["capacity"]
             density_ratio = density / max(1, capacity)
         else:
             density_ratio = 0.0
@@ -345,40 +365,65 @@ class MARLEnvironment:
 
         return reward, just_arrived, info
 
-    def _advance_vehicle(self, v: Vehicle) -> None:
-        """Move a vehicle one step forward on its route."""
-        next_node = v.get_next_node()
-        if next_node is None:
-            return
-
-        prev = v.current_node
-        if self.network.graph.has_edge(prev, next_node):
-            self.network.remove_vehicle_from_link(v.vehicle_id, prev, next_node)
-            density = self.network.get_edge_density(prev, next_node)
-            v.speed = speed_density(
-                density,
-                self.network.config.link_capacity,
-                self.network.config.speed_limit,
+    def _advance_vehicle(self, v: Vehicle) -> bool:
+        """Move a vehicle continuously along its current route."""
+        if v.is_at_intersection():
+            next_node = v.get_next_node()
+            if next_node is None:
+                v.speed = 0.0
+                return False
+            if not self.network.graph.has_edge(v.current_node, next_node):
+                v.speed = 0.0
+                return False
+            entered = self.network.place_vehicle_on_link(
+                v.vehicle_id, v.current_node, next_node
             )
+            if not entered:
+                v.speed = 0.0
+                return False
+            v.start_link_traversal(next_node)
 
-        v.advance_route()
+        start = v.link_start_node
+        end = v.link_end_node
+        if start is None or end is None:
+            v.speed = 0.0
+            return False
+        if self.network.is_node_blocked(end):
+            v.speed = 0.0
+            return False
+
+        density = self.network.get_edge_density(start, end)
+        v.speed = speed_density(
+            density,
+            self.network.config.link_capacity,
+            self.network.config.speed_limit,
+        )
+        if v.speed <= 1e-8:
+            if v.link_progress <= 1e-8:
+                self.network.remove_vehicle_from_link(v.vehicle_id, start, end)
+                v.clear_link_traversal()
+            v.speed = 0.0
+            return False
+
+        reached = v.move_along_current_link(
+            distance_blocks=v.speed,
+            block_length=self.network.config.block_length,
+        )
         v.total_travel_time += 1
-
-        next_next = v.get_next_node()
-        if next_next and self.network.graph.has_edge(v.current_node, next_next):
-            self.network.place_vehicle_on_link(
-                v.vehicle_id, v.current_node, next_next
-            )
+        if reached:
+            self.network.remove_vehicle_from_link(v.vehicle_id, start, end)
+        return True
 
     def _move_hdv(self, v: HDV) -> None:
         """Move an HDV one step (simple, no MARL)."""
         if v.state != VehicleState.EN_ROUTE:
             return
-        next_node = v.get_next_node()
-        if next_node is None:
-            return
-        if self.network.is_node_blocked(next_node):
-            return
+        if v.is_at_intersection():
+            next_node = v.get_next_node()
+            if next_node is None:
+                return
+            if self.network.is_node_blocked(next_node):
+                return
         self._advance_vehicle(v)
 
     def _handle_arrivals(self) -> None:

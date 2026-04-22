@@ -233,11 +233,23 @@ class GridNetwork:
         vehicle_id: int,
         from_node: Tuple[int, int],
         to_node: Tuple[int, int]
-    ) -> None:
-        """Add a vehicle to a link's current vehicle list."""
+    ) -> bool:
+        """
+        Try to add a vehicle to a link's current vehicle list.
+
+        Returns:
+            True if placed or already present, False if link is full.
+        """
         vehicles = self.graph.edges[from_node, to_node]["current_vehicles"]
-        if vehicle_id not in vehicles:
-            vehicles.append(vehicle_id)
+        if vehicle_id in vehicles:
+            return True
+
+        capacity = self.graph.edges[from_node, to_node]["capacity"]
+        if len(vehicles) >= capacity:
+            return False
+
+        vehicles.append(vehicle_id)
+        return True
 
     def remove_vehicle_from_link(
         self,

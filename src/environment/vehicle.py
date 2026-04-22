@@ -107,6 +107,12 @@ class Vehicle:
         self.current_node: Tuple[int, int] = origin
         self.state: VehicleState = VehicleState.WAITING
         self.speed: float = 0.0
+        # Continuous along-link state:
+        # None => at an intersection (current_node).
+        # Otherwise moving from link_start_node to link_end_node with progress in [0, 1).
+        self.link_start_node: Optional[Tuple[int, int]] = None
+        self.link_end_node: Optional[Tuple[int, int]] = None
+        self.link_progress: float = 0.0
 
         # Route: ordered list of nodes from current position to destination
         self.planned_route: List[Tuple[int, int]] = []
@@ -156,6 +162,56 @@ class Vehicle:
         """Return the portion of the route not yet traversed."""
         return self.planned_route[self.route_index:]
 
+    def is_at_intersection(self) -> bool:
+        """True when the vehicle is exactly at an intersection."""
+        return self.link_end_node is None
+
+    def start_link_traversal(self, next_node: Tuple[int, int]) -> None:
+        """Start traversing from current_node toward next_node."""
+        self.link_start_node = self.current_node
+        self.link_end_node = next_node
+        self.link_progress = 0.0
+
+    def clear_link_traversal(self) -> None:
+        """Clear along-link state (vehicle is at an intersection)."""
+        self.link_start_node = None
+        self.link_end_node = None
+        self.link_progress = 0.0
+
+    def move_along_current_link(self, distance_blocks: float, block_length: float = 1.0) -> bool:
+        """
+        Advance along the current link by a continuous distance.
+
+        Returns:
+            True if the vehicle reached the next intersection this call.
+        """
+        if self.link_end_node is None:
+            return False
+        if block_length <= 1e-8:
+            block_length = 1.0
+
+        delta = max(0.0, distance_blocks) / block_length
+        self.link_progress += delta
+
+        if self.link_progress >= 1.0:
+            self.current_node = self.link_end_node
+            self.route_index += 1
+            self.clear_link_traversal()
+            return True
+        return False
+
+    def get_continuous_position(self, network: GridNetwork) -> Tuple[float, float]:
+        """
+        Get continuous (x, y) position for communication/range checks.
+        """
+        if self.link_end_node is None or self.link_start_node is None:
+            return network.get_node_position(self.current_node)
+
+        x0, y0 = network.get_node_position(self.link_start_node)
+        x1, y1 = network.get_node_position(self.link_end_node)
+        p = min(max(self.link_progress, 0.0), 1.0)
+        return (x0 + (x1 - x0) * p, y0 + (y1 - y0) * p)
+
     # ── Trip Lifecycle ───────────────────────────────────────────────────
 
     def depart(self, timestep: int) -> None:
@@ -165,6 +221,7 @@ class Vehicle:
         self.arrival_time = None
         self.total_travel_time = 0.0
         self.total_wait_time = 0.0
+        self.clear_link_traversal()
 
     def arrive(self, timestep: int) -> None:
         """Record arrival at the destination."""
@@ -191,6 +248,7 @@ class Vehicle:
         self.departure_time = None
         self.arrival_time = None
         self.num_route_recalculations = 0
+        self.clear_link_traversal()
 
     # ── Routing (to be overridden by subclasses) ─────────────────────────
 
