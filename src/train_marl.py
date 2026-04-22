@@ -277,14 +277,35 @@ class MARLEnvironment:
                     is_stalled = not moved
 
             elif action == 1:  # Alternative route
-                cav._fallback_dijkstra(self.network, cav.get_blacklisted_nodes())
-                cluster = self.comm.get_cluster_members(
-                    cav.vehicle_id, self.vehicles
+                # Use fallback Dijkstra route directly as a distinct
+                # alternative-policy action (do not overwrite it with
+                # Dec-CTDSP immediately after).
+                alt_route = cav._fallback_dijkstra(
+                    self.network, cav.get_blacklisted_nodes()
                 )
-                cav.compute_route(
-                    self.network, self.timestep, cluster_vehicles=cluster
+                if alt_route:
+                    cav.set_route(alt_route)
+                    cav.num_route_recalculations += 1
+                else:
+                    # Safety fallback if no valid alternative exists.
+                    cluster = self.comm.get_cluster_members(
+                        cav.vehicle_id, self.vehicles
+                    )
+                    cav.compute_route(
+                        self.network, self.timestep, cluster_vehicles=cluster
+                    )
+
+                # Re-check blockage using the newly selected route.
+                next_after = cav.get_next_node()
+                blocked_after = (
+                    next_after is not None
+                    and self.network.is_node_blocked(next_after)
                 )
-                if not blocked_ahead:
+                if blocked_after and next_after is not None:
+                    self.comm.broadcast_obstacle(
+                        cav, next_after, self.vehicles, self.timestep
+                    )
+                if not blocked_after:
                     moved = self._advance_vehicle(cav)
                     is_stalled = not moved
                 else:
