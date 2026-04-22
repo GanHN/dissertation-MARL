@@ -288,6 +288,7 @@ def _run_with_trained_agent(
         step_trips = sum(v.trips_completed for v in env.vehicles)
         total_trips = step_trips
         total_recalcs = sum(v.num_route_recalculations for v in env.vehicles if isinstance(v, CAV))
+        total_broadcasts = env.comm.obstacle_broadcasts_sent
 
         # Recent trip times for MSTT
         recent = []
