@@ -3,9 +3,10 @@ reward.py - Multi-Objective Reward Function
 The reward function that defines what "good driving" means for the
 MARL agents. This is a key design contribution of the project.
 
-The total reward at each timestep is a weighted sum of four terms:
+The total reward at each timestep is a weighted sum of five terms:
 
-    R(t) = w_p * R_progress + w_a * R_arrival + w_s * R_safety + w_w * R_wait
+    R(t) = w_p * R_progress + w_a * R_arrival + w_s * R_safety
+           + w_w * R_wait + w_es * R_event_safety
 
 Terms:
     R_progress:  Positive reward for moving closer to destination.
@@ -70,6 +71,11 @@ class RewardConfig:
     long_stall_threshold: int = 5        # Steps after which stall penalty doubles
     long_stall_multiplier: float = 2.0
 
+    # Explicit safety-event penalties (from TTC/collision monitor)
+    w_event_safety: float = 1.0
+    near_miss_penalty: float = -2.0
+    collision_event_penalty: float = -25.0
+
 
 # ── Reward Calculator ────────────────────────────────────────────────────────
 
@@ -96,6 +102,8 @@ class RewardCalculator:
         just_arrived: bool,
         trip_duration: float,
         link_density_ratio: float,
+        had_near_miss: bool = False,
+        had_collision: bool = False,
     ) -> Tuple[float, dict]:
         """
         Compute the total reward for a vehicle at this timestep.
@@ -110,6 +118,8 @@ class RewardCalculator:
             just_arrived:            Whether the vehicle just reached its destination.
             trip_duration:           How many timesteps this trip has taken so far.
             link_density_ratio:      Current link density / capacity (0.0 to 1.0).
+            had_near_miss:           Whether this agent was in a near-miss event this step.
+            had_collision:           Whether this agent was in a collision event this step.
 
         Returns:
             (total_reward, breakdown_dict) where breakdown has each component.
@@ -128,12 +138,16 @@ class RewardCalculator:
         # ── R_wait ──
         r_wait = self._compute_wait(is_stalled, consecutive_stall_steps)
 
+        # ── R_event_safety ──
+        r_event_safety = self._compute_event_safety(had_near_miss, had_collision)
+
         # ── Total ──
         total = (
             cfg.w_progress * r_progress
             + cfg.w_arrival * r_arrival
             + cfg.w_safety * r_safety
             + cfg.w_wait * r_wait
+            + cfg.w_event_safety * r_event_safety
         )
 
         breakdown = {
@@ -141,11 +155,13 @@ class RewardCalculator:
             "r_arrival": round(r_arrival, 4),
             "r_safety": round(r_safety, 4),
             "r_wait": round(r_wait, 4),
+            "r_event_safety": round(r_event_safety, 4),
             "total": round(total, 4),
             "w_progress": round(cfg.w_progress * r_progress, 4),
             "w_arrival": round(cfg.w_arrival * r_arrival, 4),
             "w_safety": round(cfg.w_safety * r_safety, 4),
             "w_wait": round(cfg.w_wait * r_wait, 4),
+            "w_event_safety": round(cfg.w_event_safety * r_event_safety, 4),
         }
 
         return total, breakdown
@@ -248,6 +264,23 @@ class RewardCalculator:
         if consecutive_stall_steps >= cfg.long_stall_threshold:
             return cfg.wait_penalty_per_step * cfg.long_stall_multiplier
         return cfg.wait_penalty_per_step
+
+    def _compute_event_safety(
+        self,
+        had_near_miss: bool,
+        had_collision: bool,
+    ) -> float:
+        """
+        Explicit event-based safety penalty.
+
+        Collision is treated as more severe than near miss.
+        """
+        cfg = self.config
+        if had_collision:
+            return cfg.collision_event_penalty
+        if had_near_miss:
+            return cfg.near_miss_penalty
+        return 0.0
 
 
 # ── Shortest Path Distance Helper ────────────────────────────────────────────

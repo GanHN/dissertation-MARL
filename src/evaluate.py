@@ -1,7 +1,7 @@
 """
 evaluate.py
 Runs systematic experiments sweeping Market Penetration (MP) and
-Communication Radius (CR), then produces plots for the report.
+Communication Radius (CR), then produces plots.
 
 Experiments:
     1. MP Sweep:  Fix CR=0.5, vary MP from 0% to 100%

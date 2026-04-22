@@ -42,6 +42,7 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.environment.grid_network import GridNetwork, NetworkConfig, speed_density
+from src.environment.safety import SafetyMonitor
 from src.environment.vehicle import (
     CAV, HDV, Vehicle, VehicleFactory, VehicleState, VehicleType,
 )
@@ -135,6 +136,12 @@ class MARLEnvironment:
         self._recent_trip_times: List[float] = []
         self._max_recent_trips: int = 50
 
+        # Safety tracking
+        self.safety_monitor = SafetyMonitor()
+        self.total_near_misses: int = 0
+        self.total_collisions: int = 0
+        self.total_vehicle_steps: int = 0
+
     def reset(self, seed: Optional[int] = None) -> None:
         """Reset the environment for a new episode."""
         actual_seed = seed if seed is not None else self.config.seed
@@ -181,6 +188,9 @@ class MARLEnvironment:
         self._stall_counters = {}
         self._trip_starts = {}
         self._recent_trip_times = []
+        self.total_near_misses = 0
+        self.total_collisions = 0
+        self.total_vehicle_steps = 0
         for cav in self.cavs:
             dist = shortest_path_distance(
                 self.network, cav.current_node, cav.destination
@@ -203,6 +213,8 @@ class MARLEnvironment:
             {vehicle_id: (reward, done, info)} for each CAV.
         """
         self.timestep += 1
+        active_now = sum(1 for v in self.vehicles if v.state == VehicleState.EN_ROUTE)
+        self.total_vehicle_steps += active_now
 
         # Update environment
         self.obstacle_mgr.update(self.timestep)
@@ -227,7 +239,31 @@ class MARLEnvironment:
             reward, done, info = self._execute_cav_action(cav, action)
             results[cav.vehicle_id] = (reward, done, info)
 
-        # Handle arrivals for all vehicles
+        # Handle safety events and arrivals
+        safety = self.safety_monitor.evaluate(self.vehicles)
+        self.total_near_misses += safety.near_misses
+        self.total_collisions += safety.collisions
+        if safety.collision_vehicle_ids:
+            # Ensure collided CAVs receive explicit terminal collision penalty
+            # even if their per-agent pre-reward check missed the event.
+            extra_collision_penalty = (
+                self.reward_calc.config.w_event_safety
+                * self.reward_calc.config.collision_event_penalty
+            )
+            for cav_id in safety.collision_vehicle_ids:
+                entry = results.get(cav_id)
+                if entry is None:
+                    continue
+                reward, done, info = entry
+                if isinstance(info, dict) and not info.get("had_collision", False):
+                    reward += extra_collision_penalty
+                    done = True
+                    info["had_collision"] = True
+                    info["collision_removed"] = True
+                    results[cav_id] = (reward, done, info)
+
+            self._remove_collided_vehicles(safety.collision_vehicle_ids)
+
         self._handle_arrivals()
 
         return results
@@ -346,6 +382,9 @@ class MARLEnvironment:
         else:
             self._stall_counters[cav.vehicle_id] = 0
 
+        # Detect explicit safety events affecting this CAV on its current link.
+        had_near_miss, had_collision = self._detect_cav_safety_events(cav)
+
         # Compute current distance
         curr_dist = shortest_path_distance(
             self.network, cav.current_node, cav.destination
@@ -381,6 +420,8 @@ class MARLEnvironment:
             just_arrived=just_arrived,
             trip_duration=float(trip_duration),
             link_density_ratio=density_ratio,
+            had_near_miss=had_near_miss,
+            had_collision=had_collision,
         )
 
         # Update tracking
@@ -392,10 +433,68 @@ class MARLEnvironment:
             "curr_dist": curr_dist,
             "is_stalled": is_stalled,
             "just_arrived": just_arrived,
+            "had_near_miss": had_near_miss,
+            "had_collision": had_collision,
             "breakdown": breakdown,
         }
 
         return reward, just_arrived, info
+
+    def _detect_cav_safety_events(self, cav: CAV) -> Tuple[bool, bool]:
+        """
+        Detect whether this specific CAV is in a near-miss/collision-prone
+        follower situation on its current directed link.
+        """
+        if cav.state != VehicleState.EN_ROUTE:
+            return False, False
+        if cav.link_start_node is None or cav.link_end_node is None:
+            return False, False
+
+        same_link = [
+            v for v in self.vehicles
+            if v.vehicle_id != cav.vehicle_id
+            and v.state == VehicleState.EN_ROUTE
+            and v.link_start_node == cav.link_start_node
+            and v.link_end_node == cav.link_end_node
+        ]
+        if not same_link:
+            return False, False
+
+        # CAV is at risk as follower if there is a vehicle ahead on same link.
+        leaders = [v for v in same_link if v.link_progress > cav.link_progress]
+        if not leaders:
+            return False, False
+
+        leader = min(leaders, key=lambda v: v.link_progress - cav.link_progress)
+        gap = max(0.0, leader.link_progress - cav.link_progress)
+        rel_speed = cav.speed - leader.speed
+        if rel_speed <= 1e-8:
+            return False, False
+
+        cfg = self.safety_monitor.config
+        ttc = gap / rel_speed
+        had_near_miss = ttc < cfg.ttc_near_miss_threshold
+        had_collision = (
+            gap <= cfg.collision_gap_threshold_blocks
+            and rel_speed >= cfg.collision_rel_speed_threshold
+        )
+        return had_near_miss, had_collision
+
+    def _remove_collided_vehicles(self, vehicle_ids: set[int]) -> None:
+        """Remove collided vehicles from active MARL environment dynamics."""
+        if not vehicle_ids:
+            return
+
+        for v in self.vehicles:
+            if v.vehicle_id not in vehicle_ids:
+                continue
+            if v.link_start_node is not None and v.link_end_node is not None:
+                self.network.remove_vehicle_from_link(
+                    v.vehicle_id, v.link_start_node, v.link_end_node
+                )
+            v.clear_link_traversal()
+            v.speed = 0.0
+            v.state = VehicleState.ARRIVED
 
     def _advance_vehicle(self, v: Vehicle) -> bool:
         """Move a vehicle continuously along its current route."""

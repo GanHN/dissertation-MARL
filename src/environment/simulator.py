@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.environment.grid_network import GridNetwork, NetworkConfig
 from src.environment.vehicle import ( CAV, HDV, Vehicle, VehicleFactory, VehicleState, VehicleType,)
+from src.environment.safety import SafetyMonitor
 from src.communication.comm_manager import CommunicationManager, CommConfig
 from src.routing.dec_ctdsp import dec_ctdsp_route, DecCTDSPConfig
 
@@ -92,6 +93,9 @@ class SimMetrics:
     total_route_recalculations: int = 0
     total_obstacle_broadcasts: int = 0
     total_wait_timesteps: int = 0
+    total_near_misses: int = 0
+    total_collisions: int = 0
+    total_vehicle_steps: int = 0
 
     # Per-trip data
     all_trip_times: List[float] = field(default_factory=list)
@@ -157,6 +161,20 @@ class SimMetrics:
             "total_obstacle_broadcasts": self.total_obstacle_broadcasts,
             "avg_trip_time": round(np.mean(self.all_trip_times), 3) if self.all_trip_times else 0,
             "avg_wait_per_vehicle": round(self.total_wait_timesteps / max(1, self.total_trips_completed), 3),
+            "total_near_misses": self.total_near_misses,
+            "total_collisions": self.total_collisions,
+            "near_miss_rate_per_1000_trips": round(
+                (self.total_near_misses * 1000.0) / max(1, self.total_trips_completed), 3
+            ),
+            "collision_rate_per_1000_trips": round(
+                (self.total_collisions * 1000.0) / max(1, self.total_trips_completed), 3
+            ),
+            "near_miss_rate_per_10k_vehicle_steps": round(
+                (self.total_near_misses * 10000.0) / max(1, self.total_vehicle_steps), 3
+            ),
+            "collision_rate_per_10k_vehicle_steps": round(
+                (self.total_collisions * 10000.0) / max(1, self.total_vehicle_steps), 3
+            ),
             "timesteps_run": len(self.mstt_history),
         }
 
@@ -280,6 +298,7 @@ class Simulator:
 
         # Metrics
         self.metrics = SimMetrics()
+        self.safety_monitor = SafetyMonitor()
 
         # Timestep counter
         self.timestep = 0
@@ -344,6 +363,9 @@ class Simulator:
 
     def _step(self, t: int) -> None:
         """Execute one simulation timestep."""
+        active_now = sum(1 for v in self.vehicles if v.state == VehicleState.EN_ROUTE)
+        self.metrics.total_vehicle_steps += active_now
+
         # 1. Update obstacles (spawn/clear)
         spawned, cleared = self.obstacle_manager.update(t)
 
@@ -407,8 +429,35 @@ class Simulator:
             # Move vehicle forward one step along its route
             self._move_vehicle(v, t)
 
-        # 6. Handle arrivals
+        # 6. Safety events and arrival handling
+        safety = self.safety_monitor.evaluate(self.vehicles)
+        self.metrics.total_near_misses += safety.near_misses
+        self.metrics.total_collisions += safety.collisions
+        if safety.collision_vehicle_ids:
+            self._remove_collided_vehicles(safety.collision_vehicle_ids)
+
         self._handle_arrivals(t)
+
+    def _remove_collided_vehicles(self, vehicle_ids: set[int]) -> None:
+        """
+        Remove collided vehicles from active simulation dynamics.
+
+        Vehicles are marked as ARRIVED-like terminal state (without trip credit)
+        and removed from any link occupancy lists.
+        """
+        if not vehicle_ids:
+            return
+
+        for v in self.vehicles:
+            if v.vehicle_id not in vehicle_ids:
+                continue
+            if v.link_start_node is not None and v.link_end_node is not None:
+                self.network.remove_vehicle_from_link(
+                    v.vehicle_id, v.link_start_node, v.link_end_node
+                )
+            v.clear_link_traversal()
+            v.speed = 0.0
+            v.state = VehicleState.ARRIVED
 
     # ── Vehicle Movement ─────────────────────────────────────────────────
 

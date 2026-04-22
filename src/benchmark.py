@@ -244,6 +244,9 @@ def _run_with_trained_agent(
     total_broadcasts = 0
     total_wait_steps = 0
     total_trips = 0
+    total_near_misses = 0
+    total_collisions = 0
+    total_vehicle_steps = 0
     mstt_history = []
     speeds_history = []
     prev_total_wait = 0
@@ -287,10 +290,14 @@ def _run_with_trained_agent(
 
         # Accumulate metrics
         # Trips completed this step
+        active_now = sum(1 for v in env.vehicles if v.state == VehicleState.EN_ROUTE)
+        total_vehicle_steps += active_now
         step_trips = sum(v.trips_completed for v in env.vehicles)
         total_trips = step_trips
         total_recalcs = sum(v.num_route_recalculations for v in env.vehicles if isinstance(v, CAV))
         total_broadcasts = env.comm.obstacle_broadcasts_sent
+        total_near_misses = env.total_near_misses
+        total_collisions = env.total_collisions
 
         # Recent trip times for MSTT
         recent = []
@@ -334,6 +341,12 @@ def _run_with_trained_agent(
         "total_obstacle_broadcasts": total_broadcasts,
         "avg_trip_time": round(float(np.mean(all_trip_times)), 3) if all_trip_times else 0,
         "avg_wait_per_vehicle": round(total_wait_steps / max(1, total_trips), 3),
+        "total_near_misses": total_near_misses,
+        "total_collisions": total_collisions,
+        "near_miss_rate_per_1000_trips": round((total_near_misses * 1000.0) / max(1, total_trips), 3),
+        "collision_rate_per_1000_trips": round((total_collisions * 1000.0) / max(1, total_trips), 3),
+        "near_miss_rate_per_10k_vehicle_steps": round((total_near_misses * 10000.0) / max(1, total_vehicle_steps), 3),
+        "collision_rate_per_10k_vehicle_steps": round((total_collisions * 10000.0) / max(1, total_vehicle_steps), 3),
         "timesteps_run": len(mstt_history),
         "mstt_std": float(np.std(mstt_history[-100:])) if len(mstt_history) >= 100 else 0.0,
         "marl_model_used": True,
@@ -784,6 +797,8 @@ def main():
         "final_mstt": ["mean", "std"],
         "avg_wait_per_vehicle": "mean",
         "total_trips": "mean",
+        "collision_rate_per_1000_trips": "mean",
+        "near_miss_rate_per_1000_trips": "mean",
     }).round(3)
     print(summary.to_string())
 
