@@ -632,6 +632,7 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
         ep_reward = 0.0
         ep_steps = 0
         update_count = 0
+        rollout_env_steps = 0
 
         for step in range(config.steps_per_episode):
             # Get observations
@@ -696,12 +697,14 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
 
             ep_reward += total_step_reward
             ep_steps += 1
+            rollout_env_steps += 1
 
-            # Update networks when rollout is full
-            if len(agent.rollout) >= config.rollout_length:
+            # Update networks after rollout_length ENVIRONMENT steps
+            if rollout_env_steps >= config.rollout_length and len(agent.rollout) > 0:
                 losses = agent.update()
                 loss_history.append(losses)
                 update_count += 1
+                rollout_env_steps = 0
 
         # End of episode
         episode_rewards.append(ep_reward)
@@ -711,6 +714,7 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
         if len(agent.rollout) > 0:
             losses = agent.update()
             loss_history.append(losses)
+            rollout_env_steps = 0
 
         # Update tqdm progress bar with live metrics every episode
         if has_tqdm and verbose:
