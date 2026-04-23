@@ -705,6 +705,78 @@ def plot_summary_table(df: pd.DataFrame, save_path: str) -> None:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def plot_safety_collision_rate(df: pd.DataFrame, save_path: str) -> None:
+    """Bar chart for collision rate across configurations."""
+    plot_comparison_bar(
+        df=df,
+        metric="collision_rate_per_1000_trips",
+        ylabel="Collision Rate (per 1000 trips)",
+        title="Collision Rate Comparison (lower is safer)",
+        save_path=save_path,
+        lower_is_better=True,
+    )
+
+
+def plot_safety_near_miss_rate(df: pd.DataFrame, save_path: str) -> None:
+    """Bar chart for near-miss rate across configurations."""
+    plot_comparison_bar(
+        df=df,
+        metric="near_miss_rate_per_1000_trips",
+        ylabel="Near-Miss Rate (per 1000 trips)",
+        title="Near-Miss Rate Comparison (lower is safer)",
+        save_path=save_path,
+        lower_is_better=True,
+    )
+
+
+def plot_safety_tradeoff(df: pd.DataFrame, save_path: str) -> None:
+    """Scatter plot of efficiency (MSTT) vs collision rate."""
+    grouped = df.groupby("config_name").agg({
+        "final_mstt": ["mean", "std"],
+        "collision_rate_per_1000_trips": ["mean", "std"],
+    })
+
+    order = ["hdv_only", "static_dijkstra", "dec_ctdsp", "dec_ctdsp_ma2c_no_omm", "dec_ctdsp_marl"]
+
+    fig, ax = plt.subplots(figsize=(8.5, 6.0))
+    for cfg in order:
+        if cfg not in grouped.index:
+            continue
+
+        x = grouped.loc[cfg, ("final_mstt", "mean")]
+        y = grouped.loc[cfg, ("collision_rate_per_1000_trips", "mean")]
+        xerr = grouped.loc[cfg, ("final_mstt", "std")]
+        yerr = grouped.loc[cfg, ("collision_rate_per_1000_trips", "std")]
+
+        ax.errorbar(
+            x, y,
+            xerr=xerr if not np.isnan(xerr) else 0.0,
+            yerr=yerr if not np.isnan(yerr) else 0.0,
+            fmt="o",
+            color=CONFIG_COLORS[cfg],
+            ecolor=CONFIG_COLORS[cfg],
+            elinewidth=1.5,
+            capsize=4,
+            markersize=9,
+            markeredgecolor="white",
+            markeredgewidth=1.0,
+            alpha=0.95,
+            label=CONFIG_LABELS[cfg].replace("\n", " "),
+        )
+
+    ax.set_xlabel("MSTT (lower is better)")
+    ax.set_ylabel("Collision Rate per 1000 Trips (lower is better)")
+    ax.set_title("Safety-Efficiency Tradeoff")
+    ax.grid(True, alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend(loc="upper right", fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved: {save_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark the CAV system")
     parser.add_argument("--vehicles", type=int, default=100, help="Number of vehicles")
@@ -787,6 +859,21 @@ def main():
     plot_summary_table(
         df,
         os.path.join(args.output, "benchmark_summary_table.png"),
+    )
+
+    plot_safety_collision_rate(
+        df,
+        os.path.join(args.output, "benchmark_collision_rate.png"),
+    )
+
+    plot_safety_near_miss_rate(
+        df,
+        os.path.join(args.output, "benchmark_near_miss_rate.png"),
+    )
+
+    plot_safety_tradeoff(
+        df,
+        os.path.join(args.output, "benchmark_safety_tradeoff.png"),
     )
 
     # Print final summary

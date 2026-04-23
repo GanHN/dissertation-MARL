@@ -255,10 +255,13 @@ class MARLEnvironment:
                 if entry is None:
                     continue
                 reward, done, info = entry
-                if isinstance(info, dict) and not info.get("had_collision", False):
-                    reward += extra_collision_penalty
+                if isinstance(info, dict):
+                    if not info.get("had_collision", False):
+                        reward += extra_collision_penalty
+                        info["had_collision"] = True
+                    # Collision removal must always terminate the transition
+                    # for rollout consistency.
                     done = True
-                    info["had_collision"] = True
                     info["collision_removed"] = True
                     results[cav_id] = (reward, done, info)
 
