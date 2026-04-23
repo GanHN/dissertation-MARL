@@ -299,19 +299,22 @@ def _run_with_trained_agent(
         total_near_misses = env.total_near_misses
         total_collisions = env.total_collisions
 
-        # Recent trip times for MSTT
-        recent = []
-        for v in env.vehicles:
-            if v.trip_travel_times:
-                recent.append(v.trip_travel_times[-1])
-        if recent:
-            mstt_history.append(np.mean(recent))
+        # Align MARL metric recording with Simulator behavior:
+        # only record MSTT/MSS after warmup_steps.
+        if step >= cfg.warmup_steps:
+            # Recent trip times for MSTT
+            recent = []
+            for v in env.vehicles:
+                if v.trip_travel_times:
+                    recent.append(v.trip_travel_times[-1])
+            if recent:
+                mstt_history.append(np.mean(recent))
 
-        # Speeds
-        active_speeds = [v.speed for v in env.vehicles
-                         if v.state == VehicleState.EN_ROUTE and v.speed > 0]
-        if active_speeds:
-            speeds_history.append(np.mean(active_speeds))
+            # Speeds
+            active_speeds = [v.speed for v in env.vehicles
+                             if v.state == VehicleState.EN_ROUTE and v.speed > 0]
+            if active_speeds:
+                speeds_history.append(np.mean(active_speeds))
 
         # Wait tracking: system-wide cumulative wait across all vehicles
         # (CAV + HDV), aligned with Simulator-based configs.
@@ -373,7 +376,10 @@ def run_benchmark(
         communication_radius=cr,
         num_obstacles=num_obstacles,
         max_timesteps=max_timesteps,
-        convergence_window=min(100, max_timesteps // 3),
+        # Force a fixed-horizon benchmark across all configs.
+        # Simulator-based configs would otherwise stop early on convergence,
+        # while MARL rollouts run the full max_timesteps.
+        convergence_window=max_timesteps + 1,
         warmup_steps=10,
     )
 

@@ -55,8 +55,8 @@ class RewardConfig:
     progress_per_block: float = 1.0     # Reward per block of progress
 
     # Arrival bonus
-    w_arrival: float = 5.0
-    arrival_base: float = 20.0          # Base bonus for reaching destination
+    w_arrival: float = 6.0              # was 5.0,
+    arrival_base: float = 25.0          # Base bonus for reaching destination   # was 20.0
     arrival_time_scale: float = 0.5     # How much to penalise slow trips
     optimal_trip_time: float = 5.0      # Expected min trip time (for scaling)
 
@@ -73,8 +73,8 @@ class RewardConfig:
 
     # Explicit safety-event penalties (from TTC/collision monitor)
     w_event_safety: float = 1.0
-    near_miss_penalty: float = -2.0
-    collision_event_penalty: float = -25.0
+    near_miss_penalty: float = -5.0          # was -2.0, increased to make it more significant
+    collision_event_penalty: float = -20.0   # was -25.0
 
 
 # ── Reward Calculator ────────────────────────────────────────────────────────
