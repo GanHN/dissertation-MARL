@@ -63,7 +63,7 @@ class RewardConfig:
     # Safety penalty
     w_safety: float = 1.0
     safety_threshold: float = 0.6       # Density ratio above which penalty kicks in
-    collision_penalty: float = -10.0     # Penalty when link is at full capacity
+    congestion_penalty: float = -10.0     # Penalty when link is at full capacity
 
     # Wait/stall penalty
     w_wait: float = 0.5
@@ -220,11 +220,11 @@ class RewardCalculator:
         Penalty for being on congested/overcrowded links.
 
         R_safety = 0                                    if ratio < threshold
-                 = collision_penalty * (ratio - thresh) / (1 - thresh)
+                 = congestion_penalty * (ratio - thresh) / (1 - thresh)
                                                         if ratio >= threshold
 
         This is a continuous penalty that scales with congestion.
-        At full capacity (ratio=1.0), the agent gets the full collision_penalty.
+        At full capacity (ratio=1.0), the agent gets the full congestion_penalty.
         Below the threshold, no penalty — some traffic is normal.
 
         This serves as a proxy for "maintain safe following distance"
@@ -236,11 +236,11 @@ class RewardCalculator:
             return 0.0
 
         if link_density_ratio >= 1.0:
-            return cfg.collision_penalty
+            return cfg.congestion_penalty
 
         # Linear interpolation between threshold and full capacity
         severity = (link_density_ratio - cfg.safety_threshold) / (1.0 - cfg.safety_threshold)
-        return cfg.collision_penalty * severity
+        return cfg.congestion_penalty * severity
 
     def _compute_wait(
         self,
