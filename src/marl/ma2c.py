@@ -39,7 +39,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.marl.gat_network import GATConfig, GATNetwork, build_cluster_graph
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
 
 @dataclass
 class MA2CConfig:
@@ -76,7 +75,6 @@ class MA2CConfig:
     gat_config: GATConfig = field(default_factory=GATConfig)
 
 
-# ── Actor Network ────────────────────────────────────────────────────────────
 
 class Actor(nn.Module):
     """
@@ -118,7 +116,6 @@ class Actor(nn.Module):
         return Categorical(logits=logits)
 
 
-# ── Critic Network ───────────────────────────────────────────────────────────
 
 class Critic(nn.Module):
     """
@@ -167,7 +164,6 @@ class Critic(nn.Module):
         return self.network(x)
 
 
-# ── Global State Builder ────────────────────────────────────────────────────
 
 class GlobalStateBuilder:
     """
@@ -222,7 +218,6 @@ class GlobalStateBuilder:
         ]
 
 
-# ── Rollout Storage ──────────────────────────────────────────────────────────
 
 class RolloutStorage:
     """
@@ -350,7 +345,6 @@ class RolloutStorage:
         return len(self.rewards)
 
 
-# ── MA2C Agent ───────────────────────────────────────────────────────────────
 
 class MA2CAgent:
     """
@@ -388,7 +382,6 @@ class MA2CAgent:
         self.total_updates: int = 0
         self.training_losses: List[float] = []
 
-    # ── Action Selection ─────────────────────────────────────────────────
 
     def act(
         self,
@@ -431,7 +424,6 @@ class MA2CAgent:
 
         return action.item(), log_prob.squeeze(), value.squeeze()
 
-    # ── Training Update ──────────────────────────────────────────────────
 
     def update(self) -> Dict[str, float]:
         """
@@ -561,7 +553,6 @@ class MA2CAgent:
             "total_loss": round(loss_val, 4),
         }
 
-    # ── Save / Load ──────────────────────────────────────────────────────
 
     def save(self, path: str) -> None:
         """Save all network weights."""
@@ -595,7 +586,6 @@ class MA2CAgent:
         self.critic.train()
 
 
-# ── Quick Test ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("=" * 60)

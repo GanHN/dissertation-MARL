@@ -43,7 +43,6 @@ from src.communication.comm_manager import CommunicationManager, CommConfig
 from src.routing.dec_ctdsp import dec_ctdsp_route, DecCTDSPConfig
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
 
 @dataclass
 class SimConfig:
@@ -81,7 +80,6 @@ class SimConfig:
     seed: int = 42
 
 
-# ── Metrics Recorder ─────────────────────────────────────────────────────────
 
 @dataclass
 class SimMetrics:
@@ -179,7 +177,6 @@ class SimMetrics:
         }
 
 
-# ── Obstacle Manager ─────────────────────────────────────────────────────────
 
 class ObstacleManager:
     """Handles spawning and clearing of dynamic obstacles."""
@@ -239,7 +236,6 @@ class ObstacleManager:
         return newly_spawned, newly_cleared
 
 
-# ── Main Simulator ───────────────────────────────────────────────────────────
 
 class Simulator:
     """
@@ -303,7 +299,6 @@ class Simulator:
         # Timestep counter
         self.timestep = 0
 
-    # ── Main Loop ────────────────────────────────────────────────────────
 
     def run(self, verbose: bool = False) -> SimMetrics:
         """
@@ -359,7 +354,6 @@ class Simulator:
             v.depart(timestep=0)
             v.speed = self.network.config.speed_limit
 
-    # ── Single Timestep ──────────────────────────────────────────────────
 
     def _step(self, t: int) -> None:
         """Execute one simulation timestep."""
@@ -459,7 +453,6 @@ class Simulator:
             v.speed = 0.0
             v.state = VehicleState.ARRIVED
 
-    # ── Vehicle Movement ─────────────────────────────────────────────────
 
     def _move_vehicle(self, v: Vehicle, t: int) -> bool:
         """
@@ -532,7 +525,6 @@ class Simulator:
                     v.compute_route(self.network, t, cluster_vehicles=cluster)
         return True
 
-    # ── Arrival Handling ─────────────────────────────────────────────────
 
     def _handle_arrivals(self, t: int) -> None:
         """
@@ -560,7 +552,6 @@ class Simulator:
                 v.speed = self.network.config.speed_limit
 
 
-# ── Quick Test ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("=" * 60)

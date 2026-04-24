@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from src.environment.vehicle import Vehicle
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
 
 @dataclass
 class DecCTDSPConfig:
@@ -45,7 +44,6 @@ class DecCTDSPConfig:
     gridlock_penalty: float = 100.0  # Travel time when a link is fully gridlocked
 
 
-# ── Time-Dependent Network ───────────────────────────────────────────────────
 
 class TimeDependentNetwork:
     """
@@ -125,7 +123,6 @@ class TimeDependentNetwork:
         return entries[-1][1]
 
 
-# ── Algorithm 1: Build Time-Dependent Travel Time Network ────────────────────
 
 def build_time_dependent_network(
     network: GridNetwork,
@@ -230,7 +227,6 @@ def build_time_dependent_network(
     return td_net
 
 
-# ── Algorithm 2: Time-Dependent Dijkstra with Blacklist ──────────────────────
 
 def time_dependent_dijkstra(
     network: GridNetwork,
@@ -316,7 +312,6 @@ def time_dependent_dijkstra(
     return []
 
 
-# ── Top-Level Routing Function ───────────────────────────────────────────────
 
 def dec_ctdsp_route(
     network: GridNetwork,
@@ -373,7 +368,6 @@ def dec_ctdsp_route(
     return route
 
 
-# ── Quick Test ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     from src.environment.grid_network import GridNetwork, NetworkConfig

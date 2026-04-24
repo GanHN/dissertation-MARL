@@ -42,7 +42,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.environment.vehicle import CAV, MobilityMessage, VehicleType
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
 
 @dataclass
 class CommConfig:
@@ -52,7 +51,6 @@ class CommConfig:
     message_log_enabled: bool = False   # If True, record all messages for analysis
 
 
-# ── Obstacle Broadcast Message ───────────────────────────────────────────────
 
 @dataclass
 class ObstacleBroadcast:
@@ -68,7 +66,6 @@ class ObstacleBroadcast:
     timestamp: int
 
 
-# ── Communication Manager ────────────────────────────────────────────────────
 
 class CommunicationManager:
     """
@@ -94,7 +91,6 @@ class CommunicationManager:
         self.obstacle_broadcasts_sent: int = 0
         self.message_log: List[dict] = []
 
-    # ── Cluster Formation ────────────────────────────────────────────────
 
     def update_clusters(
         self,
@@ -200,7 +196,6 @@ class CommunicationManager:
 
         return components
 
-    # ── Cluster Queries ──────────────────────────────────────────────────
 
     def get_cluster_for_vehicle(self, vehicle_id: int) -> Set[int]:
         """
@@ -249,7 +244,6 @@ class CommunicationManager:
         """Return the size of each cluster."""
         return [len(c) for c in self.clusters]
 
-    # ── Mobility Message Exchange ────────────────────────────────────────
 
     def exchange_mobility_messages(
         self,
@@ -291,7 +285,6 @@ class CommunicationManager:
 
         return received
 
-    # ── OMM: Obstacle Broadcasting ───────────────────────────────────────
 
     def broadcast_obstacle(
         self,
@@ -417,7 +410,6 @@ class CommunicationManager:
 
         return confirmations
 
-    # ── Blacklist Decay (called each timestep) ───────────────────────────
 
     def decay_all_blacklists(
         self,
@@ -438,7 +430,6 @@ class CommunicationManager:
                     expired_map[vehicle.vehicle_id] = expired
         return expired_map
 
-    # ── Statistics ───────────────────────────────────────────────────────
 
     def get_stats(self) -> Dict:
         """Return communication statistics for evaluation."""
@@ -456,7 +447,6 @@ class CommunicationManager:
         self.obstacle_broadcasts_sent = 0
 
 
-# ── Quick Test ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import sys, os

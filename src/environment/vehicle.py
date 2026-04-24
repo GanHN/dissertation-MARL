@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from src.environment.grid_network import GridNetwork
 
 
-# ── Enums ────────────────────────────────────────────────────────────────────
 
 class VehicleType(Enum):
     CAV = auto()
@@ -41,7 +40,7 @@ class VehicleState(Enum):
     ARRIVED = auto()        # Reached destination
 
 
-# ── Mobility Message (broadcasted by CAVs) ───────────────────────────────────
+
 
 @dataclass
 class MobilityMessage:
@@ -60,7 +59,6 @@ class MobilityMessage:
     timestamp: int  # Simulation timestep when the message was created
 
 
-# ── OMM Blacklist Entry ──────────────────────────────────────────────────────
 
 @dataclass
 class BlacklistEntry:
@@ -78,7 +76,6 @@ class BlacklistEntry:
     ttl: int                # Time-to-live in timesteps
 
 
-# ── Base Vehicle ─────────────────────────────────────────────────────────────
 
 class Vehicle:
     """
@@ -129,7 +126,6 @@ class Vehicle:
         # History of travel times (for averaging across trips)
         self.trip_travel_times: List[float] = []
 
-    # ── Route Management ─────────────────────────────────────────────────
 
     def set_route(self, route: List[Tuple[int, int]]) -> None:
         """
@@ -212,7 +208,6 @@ class Vehicle:
         p = min(max(self.link_progress, 0.0), 1.0)
         return (x0 + (x1 - x0) * p, y0 + (y1 - y0) * p)
 
-    # ── Trip Lifecycle ───────────────────────────────────────────────────
 
     def depart(self, timestep: int) -> None:
         """Start (or restart) a trip from the origin."""
@@ -250,7 +245,6 @@ class Vehicle:
         self.num_route_recalculations = 0
         self.clear_link_traversal()
 
-    # ── Routing (to be overridden by subclasses) ─────────────────────────
 
     def compute_route(self, network: GridNetwork, timestep: int) -> None:
         """
@@ -261,7 +255,6 @@ class Vehicle:
         """
         raise NotImplementedError("Subclasses must implement compute_route()")
 
-    # ── Info ─────────────────────────────────────────────────────────────
 
     def get_average_travel_time(self) -> float:
         """Return average trip time across all completed trips."""
@@ -277,7 +270,6 @@ class Vehicle:
         )
 
 
-# ── Human-Driven Vehicle (HDV) ──────────────────────────────────────────────
 
 class HDV(Vehicle):
     """
@@ -362,7 +354,6 @@ class HDV(Vehicle):
         self.set_route(route)
 
 
-# ── Connected Autonomous Vehicle (CAV) ───────────────────────────────────────
 
 class CAV(Vehicle):
     """
@@ -398,7 +389,6 @@ class CAV(Vehicle):
         # Signature: (network, current_node, destination, blacklist_nodes) -> route
         self._routing_function = None
 
-    # ── Routing Function Injection ───────────────────────────────────────
 
     def set_routing_function(self, func) -> None:
         """
@@ -415,7 +405,6 @@ class CAV(Vehicle):
         """
         self._routing_function = func
 
-    # ── OMM Blacklist Management ─────────────────────────────────────────
 
     def add_to_blacklist(self, node: Tuple[int, int], timestep: int) -> None:
         """
@@ -469,7 +458,6 @@ class CAV(Vehicle):
         """
         self.add_to_blacklist(blocked_node, timestep)
 
-    # ── Communication ────────────────────────────────────────────────────
 
     def create_mobility_message(self, timestep: int) -> MobilityMessage:
         """
@@ -485,7 +473,6 @@ class CAV(Vehicle):
             timestamp=timestep,
         )
 
-    # ── Routing ──────────────────────────────────────────────────────────
 
     def compute_route(
         self,
@@ -583,7 +570,6 @@ class CAV(Vehicle):
         # No path found
         return []
 
-    # ── Reset ────────────────────────────────────────────────────────────
 
     def reset_for_new_trip(self, new_destination: Tuple[int, int]) -> None:
         """Reset for a new trip. Blacklist persists across trips."""
@@ -592,7 +578,6 @@ class CAV(Vehicle):
         # Entries still expire naturally via TTL decay.
 
 
-# ── Vehicle Factory ──────────────────────────────────────────────────────────
 
 class VehicleFactory:
     """
@@ -674,7 +659,6 @@ class VehicleFactory:
         vehicle.reset_for_new_trip(new_dest)
 
 
-# ── Quick Test ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     # We need to add parent to path for the import to work standalone

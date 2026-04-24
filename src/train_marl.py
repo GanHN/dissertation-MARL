@@ -56,12 +56,11 @@ from src.marl.gat_network import (
 from src.marl.ma2c import MA2CAgent, MA2CConfig, GlobalStateBuilder
 
 
-# ── Training Configuration ───────────────────────────────────────────────────
 
 class TrainConfig:
     """All training hyperparameters."""
     # Environment
-    num_vehicles: int = 30
+    num_vehicles: int = 80
     market_penetration: float = 1.0
     communication_radius: float = 0.5
     num_obstacles: int = 2
@@ -69,7 +68,7 @@ class TrainConfig:
     grid_cols: int = 6
 
     # Training
-    num_episodes: int = 200
+    num_episodes: int = 300
     steps_per_episode: int = 100
     rollout_length: int = 16
     learning_rate: float = 5e-5
@@ -86,7 +85,6 @@ class TrainConfig:
     eval_interval: int = 25
 
 
-# ── Training Environment ─────────────────────────────────────────────────────
 
 class MARLEnvironment:
     """
@@ -594,7 +592,6 @@ class MARLEnvironment:
                 self._stall_counters[v.vehicle_id] = 0
                 self._trip_starts[v.vehicle_id] = self.timestep
 
-    # ── Observation Building ─────────────────────────────────────────────
 
     def get_observations(self) -> Dict[int, torch.Tensor]:
         """Build local observation tensors for all active CAVs."""
@@ -717,7 +714,6 @@ class MARLEnvironment:
         return torch.tensor(gs, dtype=torch.float32)
 
 
-# ── Training Loop ────────────────────────────────────────────────────────────
 
 def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
     """
@@ -960,7 +956,6 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
                     else:
                         print(msg)
 
-    # ── Final model selection ──
     # Save the LAST model under a separate name for reference
     last_path = os.path.join(config.save_dir, "last_model.pt")
     agent.save(last_path)
@@ -999,7 +994,6 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
     return agent
 
 
-# ── Evaluation ───────────────────────────────────────────────────────────────
 
 def evaluate(
     agent: MA2CAgent,
@@ -1051,7 +1045,6 @@ def evaluate(
     return float(np.mean(total_rewards))
 
 
-# ── Training Curves ──────────────────────────────────────────────────────────
 
 def _save_training_log_csv(
     rewards: List[float],
@@ -1134,7 +1127,6 @@ def _save_training_curves(
     print(f"  Saved: {path}")
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train MA2C agent")

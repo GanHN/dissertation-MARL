@@ -47,7 +47,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.environment.simulator import Simulator, SimConfig
 
 
-# ── Experiment Runner ────────────────────────────────────────────────────────
 
 def run_experiment(config: SimConfig, label: str = "", verbose: bool = False) -> Dict:
     """Run a single simulation and return its metrics summary."""
@@ -78,7 +77,6 @@ def run_experiment(config: SimConfig, label: str = "", verbose: bool = False) ->
     return summary
 
 
-# ── Experiment 1: MP Sweep ───────────────────────────────────────────────────
 
 def experiment_mp_sweep(
     mp_values: List[float],
@@ -123,7 +121,6 @@ def experiment_mp_sweep(
     return pd.DataFrame(results)
 
 
-# ── Experiment 2: CR Sweep ───────────────────────────────────────────────────
 
 def experiment_cr_sweep(
     cr_values: List[float],
@@ -168,7 +165,6 @@ def experiment_cr_sweep(
     return pd.DataFrame(results)
 
 
-# ── Plotting Functions ───────────────────────────────────────────────────────
 
 def plot_metric_vs_mp(
     df: pd.DataFrame,
@@ -337,7 +333,6 @@ def plot_improvement_summary(
     print(f"  Saved: {save_path}")
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="CAV Simulation Evaluation Suite")

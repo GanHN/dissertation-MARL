@@ -35,7 +35,6 @@ except ImportError:
     HAS_PYG = False
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
 
 @dataclass
 class GATConfig:
@@ -52,7 +51,6 @@ class GATConfig:
     dropout: float = 0.1         # Dropout rate
 
 
-# ── Observation Builder ──────────────────────────────────────────────────────
 
 class ObservationBuilder:
     """
@@ -145,7 +143,6 @@ class ObservationBuilder:
         return dot > 0
 
 
-# ── GAT Network (with PyG) ──────────────────────────────────────────────────
 
 class GATNetwork(nn.Module):
     """
@@ -273,7 +270,6 @@ class GATNetwork(nn.Module):
         return all_contexts[agent_idx]
 
 
-# ── Graph Builder Helper ─────────────────────────────────────────────────────
 
 def build_cluster_graph(
     cluster_vehicle_ids: List[int],
@@ -305,7 +301,6 @@ def build_cluster_graph(
     return torch.tensor([src, dst], dtype=torch.long)
 
 
-# ── Quick Test ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("=" * 60)

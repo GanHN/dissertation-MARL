@@ -1,21 +1,16 @@
 numpy>=1.24,<2.0
 scipy>=1.11
 networkx>=3.1                
-
 matplotlib>=3.7
 seaborn>=0.12
 
-# torch>=2.1,<2.5              # PyTorch - check https://pytorch.org for CUDA version
+# torch>=2.1,<2.5              # PyTorch - https://pytorch.org for CUDA version
 # torch-geometric>=2.4         # PyTorch Geometric - GAT, GCN, message passing
 # torch-scatter>=2.1           # Required by PyG
-# torch-sparse>=0.6            # Required by PyG  # Required by PyG - compatible version
+# torch-sparse>=0.6            # Required by PyG - compatible version
 
-gymnasium>=0.29              # Gym API (modern fork of OpenAI Gym)
-
-pandas>=2.0                  # For logging experiment results to CSV
-pyyaml>=6.0                  # YAML config files for hyperparameters
-tqdm>=4.65                   # Progress bars for training loops
-
-tensorboard>=2.14            # Training loss/reward visualisation
-
-pytest>=7.4                  # Unit tests for your modules
+gymnasium>=0.29              
+pandas>=2.0                  
+tqdm>=4.65                   
+tensorboard>=2.14            
+pytest>=7.4                  

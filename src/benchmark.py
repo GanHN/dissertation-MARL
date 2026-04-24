@@ -1,6 +1,6 @@
 """
 benchmark.py - Comprehensive System Benchmarking
-Compares your full Dec-CTDSP + OMM + MA2C system against ablations
+Compares full Dec-CTDSP + OMM + MA2C system against ablations
 and baselines to prove each component adds measurable value.
 
 Configurations tested:
@@ -57,7 +57,6 @@ from src.marl.gat_network import GATConfig
 import torch
 
 
-# ── Config Labels ────────────────────────────────────────────────────────────
 
 CONFIG_LABELS = {
     "hdv_only": "HDV only\n(baseline)",
@@ -76,7 +75,6 @@ CONFIG_COLORS = {
 }
 
 
-# ── Run Configurations ───────────────────────────────────────────────────────
 
 def run_hdv_only(config: SimConfig, seed: int) -> Dict:
     """Run baseline with 0% market penetration (all HDVs)."""
@@ -356,7 +354,6 @@ def _run_with_trained_agent(
     }
 
 
-# ── Main Benchmark Runner ────────────────────────────────────────────────────
 
 def run_benchmark(
     num_vehicles: int = 100,
@@ -433,7 +430,6 @@ def run_benchmark(
     return df
 
 
-# ── Plotting ─────────────────────────────────────────────────────────────────
 
 def plot_comparison_bar(
     df: pd.DataFrame,
@@ -709,7 +705,6 @@ def plot_summary_table(df: pd.DataFrame, save_path: str) -> None:
     print(f"  Saved: {save_path}")
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
 
 def plot_safety_collision_rate(df: pd.DataFrame, save_path: str) -> None:
     """Bar chart for collision rate across configurations."""

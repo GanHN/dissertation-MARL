@@ -24,7 +24,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
 
 @dataclass
 class NetworkConfig:
@@ -38,7 +37,6 @@ class NetworkConfig:
     num_vehicles: int = 100          # Total vehicles in simulation
 
 
-# ── Speed-Density Relationship ───────────────────────────────────────────────
 
 def speed_density(density: float, capacity: int, speed_limit: float = 1.0) -> float:
     """
@@ -88,7 +86,6 @@ def compute_travel_time(
     return free_flow_tt * (speed_limit / spd)
 
 
-# ── Grid Network Builder ─────────────────────────────────────────────────────
 
 class GridNetwork:
     """
@@ -109,7 +106,6 @@ class GridNetwork:
         self.destinations: List[Tuple[int, int]] = []
         self._build_network()
 
-    # ── Construction ─────────────────────────────────────────────────────
 
     def _build_network(self) -> None:
         """Build the full grid graph with nodes, edges, origins, and destinations."""
@@ -161,7 +157,6 @@ class GridNetwork:
             length=cfg.block_length,
         )
 
-    # ── Querying ─────────────────────────────────────────────────────────
 
     def get_neighbors(self, node: Tuple[int, int]) -> List[Tuple[int, int]]:
         """Get all nodes reachable from the given intersection."""
@@ -203,7 +198,6 @@ class GridNetwork:
         """Check if an intersection is currently blocked by an obstacle."""
         return self.graph.nodes[node].get("is_blocked", False)
 
-    # ── Obstacle Management ──────────────────────────────────────────────
 
     def block_node(self, node: Tuple[int, int]) -> None:
         """
@@ -226,7 +220,6 @@ class GridNetwork:
             if data.get("is_blocked", False)
         ]
 
-    # ── Vehicle Placement on Links ───────────────────────────────────────
 
     def place_vehicle_on_link(
         self,
@@ -262,7 +255,6 @@ class GridNetwork:
         if vehicle_id in vehicles:
             vehicles.remove(vehicle_id)
 
-    # ── Network Statistics ───────────────────────────────────────────────
 
     def get_link_densities(self) -> Dict[Tuple, int]:
         """Return a dict of {(from, to): num_vehicles} for all links."""
@@ -289,7 +281,6 @@ class GridNetwork:
             "blocked_nodes": self.get_blocked_nodes(),
         }
 
-    # ── Euclidean Distance (for Communication Radius) ────────────────────
 
     def get_node_position(self, node: Tuple[int, int]) -> Tuple[float, float]:
         """
@@ -310,7 +301,6 @@ class GridNetwork:
         pos_b = self.get_node_position(node_b)
         return np.sqrt((pos_a[0] - pos_b[0]) ** 2 + (pos_a[1] - pos_b[1]) ** 2)
 
-    # ── Visualisation ────────────────────────────────────────────────────
 
     def visualize(
         self,
@@ -331,7 +321,6 @@ class GridNetwork:
         fig, ax = plt.subplots(1, 1, figsize=(10, 8))
         pos = nx.get_node_attributes(self.graph, "pos")
 
-        # ── Draw edges ──
         if show_densities:
             densities = [
                 len(self.graph.edges[u, v]["current_vehicles"])
@@ -362,7 +351,6 @@ class GridNetwork:
             alpha=0.7,
         )
 
-        # ── Draw nodes ──
         node_colors = []
         node_sizes = []
         for node in self.graph.nodes():
@@ -384,7 +372,6 @@ class GridNetwork:
             linewidths=1.0,
         )
 
-        # ── Node labels ──
         labels = {
             node: f"{node[0]},{node[1]}"
             for node in self.graph.nodes()
@@ -394,7 +381,6 @@ class GridNetwork:
             font_size=7, font_weight="bold",
         )
 
-        # ── Mark blocked nodes ──
         if blocked_nodes:
             blocked_in_graph = [n for n in blocked_nodes if n in self.graph.nodes]
             if blocked_in_graph:
@@ -408,7 +394,6 @@ class GridNetwork:
                     linewidths=2.0,
                 )
 
-        # ── Legend ──
         legend_elements = [
             mpatches.Patch(facecolor="#3B82F6", edgecolor="#374151", label="Origins"),
             mpatches.Patch(facecolor="#22C55E", edgecolor="#374151", label="Destinations"),
@@ -420,7 +405,6 @@ class GridNetwork:
             )
         ax.legend(handles=legend_elements, loc="upper left", fontsize=9)
 
-        # ── Direction annotations ──
         ax.annotate(
             "→ East (one-way)", xy=(0.5, -0.02), xycoords="axes fraction",
             ha="center", fontsize=9, color="#4A90D9", fontweight="bold",
@@ -445,7 +429,6 @@ class GridNetwork:
         plt.close(fig)
 
 
-# ── Quick Test ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     # Build default 6x6 network
