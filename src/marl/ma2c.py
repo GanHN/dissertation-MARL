@@ -430,7 +430,7 @@ class MA2CAgent:
         Update networks using collected rollout data.
 
         Computes:
-            - Policy gradient loss with PPO-style clipping (if enabled)
+            - Policy gradient loss with PPO-style clipping
             - Value function loss (critic)
             - Entropy bonus (for exploration)
 
