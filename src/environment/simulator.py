@@ -60,7 +60,7 @@ class SimConfig:
     communication_radius: float = 0.5    # In block units
 
     # OMM
-    blacklist_ttl: int = 50
+    blacklist_ttl: int = 40      # was 50
 
     # Obstacles
     num_obstacles: int = 2

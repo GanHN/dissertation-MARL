@@ -5,7 +5,7 @@ Direct implementation of the two core algorithms from:
     for Connected and Autonomous Vehicles," IEEE Trans. ITS, 2022.
 
 Algorithm 1: build_time_dependent_network()
-    Takes the cluster vehicles' locations, speeds, and planned routes,
+    Takes the cluster vehicles' locations, and planned routes,
     simulates their movements over a planning horizon, and produces a
     time-dependent travel time for every edge at every future timestep.
 

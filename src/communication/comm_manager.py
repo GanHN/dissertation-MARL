@@ -46,7 +46,7 @@ from src.environment.vehicle import CAV, MobilityMessage, VehicleType
 @dataclass
 class CommConfig:
     """Configuration for the communication system."""
-    communication_radius: float = 0.5   # In block units (0.5 = paper's optimal)
+    communication_radius: float = 0.5   # In block units
     enable_multi_hop: bool = True       # If True, use transitive clusters
     message_log_enabled: bool = False   # If True, record all messages for analysis
 

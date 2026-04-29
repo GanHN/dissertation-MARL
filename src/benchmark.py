@@ -222,6 +222,7 @@ def _run_with_trained_agent(
     tc.market_penetration = cfg.market_penetration
     tc.communication_radius = cfg.communication_radius
     tc.num_obstacles = cfg.num_obstacles
+    tc.blacklist_ttl = cfg.blacklist_ttl
     tc.grid_rows = cfg.grid_rows
     tc.grid_cols = cfg.grid_cols
     tc.steps_per_episode = cfg.max_timesteps
@@ -372,6 +373,7 @@ def run_benchmark(
         num_vehicles=num_vehicles,
         communication_radius=cr,
         num_obstacles=num_obstacles,
+        blacklist_ttl=40,
         max_timesteps=max_timesteps,
         # Force a fixed-horizon benchmark across all configs.
         # Simulator-based configs would otherwise stop early on convergence,

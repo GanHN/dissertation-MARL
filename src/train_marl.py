@@ -64,6 +64,7 @@ class TrainConfig:
     market_penetration: float = 1.0
     communication_radius: float = 0.5
     num_obstacles: int = 2
+    blacklist_ttl: int = 40
     grid_rows: int = 6
     grid_cols: int = 6
 
@@ -163,6 +164,7 @@ class MARLEnvironment:
             market_penetration=self.config.market_penetration,
             origins=self.network.origins,
             destinations=self.network.destinations,
+            blacklist_ttl=self.config.blacklist_ttl,
             seed=actual_seed,
         )
 
