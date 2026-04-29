@@ -49,6 +49,7 @@ from src.environment.vehicle import (
 from src.communication.comm_manager import CommunicationManager, CommConfig
 from src.routing.dec_ctdsp import dec_ctdsp_route
 from src.environment.simulator import ObstacleManager, SimConfig
+from configs.experiment_defaults import (BLACKLIST_TTL, COMM_RADIUS, GRID_COLS, GRID_ROWS, NUM_OBSTACLES,)
 from src.marl.reward import RewardCalculator, RewardConfig, shortest_path_distance
 from src.marl.gat_network import (
     GATConfig, GATNetwork, ObservationBuilder, build_cluster_graph,
@@ -62,11 +63,11 @@ class TrainConfig:
     # Environment
     num_vehicles: int = 80
     market_penetration: float = 1.0
-    communication_radius: float = 0.5
-    num_obstacles: int = 3            # was 2
-    blacklist_ttl: int = 40
-    grid_rows: int = 6
-    grid_cols: int = 6
+    communication_radius: float = COMM_RADIUS
+    num_obstacles: int = NUM_OBSTACLES
+    blacklist_ttl: int = BLACKLIST_TTL
+    grid_rows: int = GRID_ROWS
+    grid_cols: int = GRID_COLS
 
     # Training
     num_episodes: int = 300
@@ -739,7 +740,7 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
     reward_scale=0.01,
     ppo_clip_epsilon=0.2,
     max_grad_norm=0.3,
-    entropy_coeff=0.02,
+    entropy_coeff=0.01,              # was 0.02
     )
     agent = MA2CAgent(ma2c_config)
     env = MARLEnvironment(config)

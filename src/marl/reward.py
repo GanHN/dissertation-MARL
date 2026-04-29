@@ -64,13 +64,13 @@ class RewardConfig:
     safety_threshold: float = 0.6       # Density ratio above which penalty kicks in
     congestion_penalty: float = -10.0     # Penalty when link is at full capacity
 
-    # Wait/stall penalty
+    # stalling penalty
     w_wait: float = 0.5
     wait_penalty_per_step: float = -0.5  # Penalty per timestep stalled
     long_stall_threshold: int = 5        # Steps after which stall penalty doubles
     long_stall_multiplier: float = 2.0
 
-    # Explicit safety-event penalties (from TTC/collision monitor)
+    # Explicit safety-event penalties
     w_event_safety: float = 1.0
     near_miss_penalty: float = -5.0          # was -2.0, increased to make it more significant
     collision_event_penalty: float = -40.0   # was -25.0

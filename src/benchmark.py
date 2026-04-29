@@ -51,6 +51,7 @@ from src.environment.vehicle import (
 from src.communication.comm_manager import CommunicationManager, CommConfig
 from src.routing.dec_ctdsp import dec_ctdsp_route
 from src.environment.simulator import Simulator, SimConfig, ObstacleManager
+from configs.experiment_defaults import BLACKLIST_TTL, COMM_RADIUS, NUM_OBSTACLES
 from src.marl.ma2c import MA2CAgent, MA2CConfig
 from src.marl.gat_network import GATConfig
 
@@ -263,6 +264,9 @@ def _run_with_trained_agent(
             for v in env.vehicles:
                 if isinstance(v, CAV):
                     v.blacklist.clear()
+        # Count vehicle-steps at timestep start (aligned with Simulator logic).
+        active_now = sum(1 for v in env.vehicles if v.state == VehicleState.EN_ROUTE)
+        total_vehicle_steps += active_now
 
         # Get observations
         node_features, edge_index, vid_order = env.get_gat_inputs()
@@ -271,8 +275,6 @@ def _run_with_trained_agent(
         if len(vid_order) == 0:
             # Preserve fixed-horizon fairness even if all CAVs become inactive.
             env.step({})
-            active_now = sum(1 for v in env.vehicles if v.state == VehicleState.EN_ROUTE)
-            total_vehicle_steps += active_now
             total_trips = sum(v.trips_completed for v in env.vehicles)
             total_recalcs = sum(v.num_route_recalculations for v in env.vehicles if isinstance(v, CAV))
             total_broadcasts = env.comm.obstacle_broadcasts_sent
@@ -319,8 +321,6 @@ def _run_with_trained_agent(
 
         # Accumulate metrics
         # Trips completed this step
-        active_now = sum(1 for v in env.vehicles if v.state == VehicleState.EN_ROUTE)
-        total_vehicle_steps += active_now
         step_trips = sum(v.trips_completed for v in env.vehicles)
         total_trips = step_trips
         total_recalcs = sum(v.num_route_recalculations for v in env.vehicles if isinstance(v, CAV))
@@ -390,8 +390,8 @@ def run_benchmark(
     num_vehicles: int = 100,
     num_seeds: int = 3,
     max_timesteps: int = 500,
-    num_obstacles: int = 2,
-    cr: float = 0.5,
+    num_obstacles: int = NUM_OBSTACLES,
+    cr: float = COMM_RADIUS,
     model_path: Optional[str] = None,
     model_path_no_omm: Optional[str] = None,
     output_dir: str = "results/benchmark",
@@ -404,7 +404,7 @@ def run_benchmark(
         num_vehicles=num_vehicles,
         communication_radius=cr,
         num_obstacles=num_obstacles,
-        blacklist_ttl=40,
+        blacklist_ttl=BLACKLIST_TTL,
         max_timesteps=max_timesteps,
         # Force a fixed-horizon benchmark across all configs.
         # Simulator-based configs would otherwise stop early on convergence,
@@ -840,8 +840,8 @@ def main():
     parser.add_argument("--vehicles", type=int, default=100, help="Number of vehicles")
     parser.add_argument("--seeds", type=int, default=3, help="Number of random seeds")
     parser.add_argument("--timesteps", type=int, default=500, help="Max timesteps")
-    parser.add_argument("--obstacles", type=int, default=2, help="Number of obstacles")
-    parser.add_argument("--cr", type=float, default=0.5, help="Communication radius")
+    parser.add_argument("--obstacles", type=int, default=NUM_OBSTACLES, help="Number of obstacles")
+    parser.add_argument("--cr", type=float, default=COMM_RADIUS, help="Communication radius")
     parser.add_argument("--model", default="results/marl/final_model.pt", help="Path to trained MA2C model")
     parser.add_argument("--model-no-omm", default=None, help="Optional separate model path for Dec-CTDSP + MA2C (no OMM)")
     parser.add_argument("--output", default="results/benchmark", help="Output directory")
