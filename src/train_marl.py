@@ -63,7 +63,7 @@ class TrainConfig:
     num_vehicles: int = 80
     market_penetration: float = 1.0
     communication_radius: float = 0.5
-    num_obstacles: int = 2
+    num_obstacles: int = 3            # was 2
     blacklist_ttl: int = 40
     grid_rows: int = 6
     grid_cols: int = 6

@@ -179,6 +179,9 @@ def run_dec_ctdsp_ma2c_no_omm(
     if not (model_path and os.path.exists(model_path)):
         # No model — fall back to simulator with blacklists cleared
         sim = Simulator(cfg)
+        sim.comm_manager.broadcast_obstacle = lambda *args, **kwargs: 0
+        sim.comm_manager.propagate_confirmations = lambda *args, **kwargs: 0
+        sim.comm_manager.decay_all_blacklists = lambda *args, **kwargs: {}
         original_step = sim._step
         def patched_step(t):
             for v in sim.vehicles:
@@ -236,6 +239,10 @@ def _run_with_trained_agent(
     # Build environment
     env = MARLEnvironment(tc)
     env.reset(seed=seed)
+    if not enable_omm:
+        env.comm.broadcast_obstacle = lambda *args, **kwargs: 0
+        env.comm.propagate_confirmations = lambda *args, **kwargs: 0
+        env.comm.decay_all_blacklists = lambda *args, **kwargs: {}
 
     # Run the episode, tracking metrics manually
     all_trip_times = []
@@ -262,7 +269,30 @@ def _run_with_trained_agent(
         global_state = env.get_global_state()
 
         if len(vid_order) == 0:
-            break
+            # Preserve fixed-horizon fairness even if all CAVs become inactive.
+            env.step({})
+            active_now = sum(1 for v in env.vehicles if v.state == VehicleState.EN_ROUTE)
+            total_vehicle_steps += active_now
+            total_trips = sum(v.trips_completed for v in env.vehicles)
+            total_recalcs = sum(v.num_route_recalculations for v in env.vehicles if isinstance(v, CAV))
+            total_broadcasts = env.comm.obstacle_broadcasts_sent
+            total_near_misses = env.total_near_misses
+            total_collisions = env.total_collisions
+
+            if step >= cfg.warmup_steps:
+                recent = [v.trip_travel_times[-1] for v in env.vehicles if v.trip_travel_times]
+                if recent:
+                    mstt_history.append(np.mean(recent))
+                active_speeds = [v.speed for v in env.vehicles
+                                 if v.state == VehicleState.EN_ROUTE and v.speed > 0]
+                if active_speeds:
+                    speeds_history.append(np.mean(active_speeds))
+
+            curr_total_wait = sum(v.total_wait_time for v in env.vehicles)
+            step_wait = max(0, curr_total_wait - prev_total_wait)
+            total_wait_steps += step_wait
+            prev_total_wait = curr_total_wait
+            continue
 
         # Run GAT + actor to pick actions
         with torch.no_grad():
@@ -363,6 +393,7 @@ def run_benchmark(
     num_obstacles: int = 2,
     cr: float = 0.5,
     model_path: Optional[str] = None,
+    model_path_no_omm: Optional[str] = None,
     output_dir: str = "results/benchmark",
     verbose: bool = True,
 ) -> pd.DataFrame:
@@ -383,12 +414,13 @@ def run_benchmark(
     )
 
     all_results = []
+    no_omm_model = model_path_no_omm or model_path
 
     configs = [
         ("hdv_only", run_hdv_only),
         ("static_dijkstra", run_static_dijkstra),
         ("dec_ctdsp", run_dec_ctdsp),
-        ("dec_ctdsp_ma2c_no_omm", lambda c, s: run_dec_ctdsp_ma2c_no_omm(c, s, model_path)),
+        ("dec_ctdsp_ma2c_no_omm", lambda c, s: run_dec_ctdsp_ma2c_no_omm(c, s, no_omm_model)),
         ("dec_ctdsp_marl", lambda c, s: run_dec_ctdsp_marl(c, s, model_path)),
     ]
 
@@ -401,6 +433,7 @@ def run_benchmark(
         print(f"  Obstacles:   {num_obstacles}")
         print(f"  CR:          {cr}")
         print(f"  MARL model:  {model_path or 'N/A'}")
+        print(f"  no-OMM model:{no_omm_model or 'N/A'}")
         print("=" * 60)
 
     start = time.time()
@@ -440,6 +473,7 @@ def plot_comparison_bar(
     title: str,
     save_path: str,
     lower_is_better: bool = True,
+    show_error_bars: bool = False,
 ) -> None:
     """Bar chart comparing a metric across all configurations."""
     grouped = df.groupby("config_name")[metric].agg(["mean", "std"]).reset_index()
@@ -455,11 +489,18 @@ def plot_comparison_bar(
     stds = grouped["std"].fillna(0).values
 
     fig, ax = plt.subplots(figsize=(9, 5.5))
-    bars = ax.bar(
-        labels, means, yerr=stds,
-        color=colors, edgecolor="white", linewidth=1.5,
-        capsize=5, width=0.6,
-    )
+    if show_error_bars:
+        bars = ax.bar(
+            labels, means, yerr=stds,
+            color=colors, edgecolor="white", linewidth=1.5,
+            capsize=5, width=0.6,
+        )
+    else:
+        bars = ax.bar(
+            labels, means,
+            color=colors, edgecolor="white", linewidth=1.5,
+            width=0.6,
+        )
 
     # Value labels on bars
     for bar, val in zip(bars, means):
@@ -552,11 +593,17 @@ def plot_improvement_percentages(
     ax.set_xticklabels([CONFIG_LABELS[c["config"]] for c in comparisons])
     ax.set_ylabel("Improvement vs HDV baseline (%)", fontsize=11)
     ax.set_title("Performance gains vs HDV-only baseline", fontsize=13, fontweight="bold")
-    ax.legend(loc="upper left", fontsize=10)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.10),
+        ncol=3,
+        fontsize=10,
+        framealpha=0.95,
+    )
     ax.grid(True, axis="y", alpha=0.3)
     ax.set_axisbelow(True)
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"  Saved: {save_path}")
@@ -693,11 +740,19 @@ def plot_summary_table(df: pd.DataFrame, save_path: str) -> None:
         cell.set_facecolor(CONFIG_COLORS[cfg])
         cell.set_text_props(color="white", weight="bold")
 
-    # Highlight best values
-    best_row = order.index("dec_ctdsp_marl") + 1
-    for i in range(1, 6):
-        cell = table[(best_row, i)]
-        cell.set_facecolor("#D1FAE5")
+    # Highlight actual per-metric best values.
+    metric_specs = [
+        (("final_mstt", "mean"), True),           # lower is better
+        (("final_mss", "mean"), False),           # higher is better
+        (("avg_wait_per_vehicle", "mean"), True), # lower is better
+        (("total_trips", "mean"), False),         # higher is better
+        (("mstt_std", "mean"), True),             # lower is better
+    ]
+    for col_idx, (metric_key, lower_is_better) in enumerate(metric_specs, start=1):
+        series = grouped[metric_key].astype(float)
+        best_cfg = series.idxmin() if lower_is_better else series.idxmax()
+        best_row = order.index(best_cfg) + 1
+        table[(best_row, col_idx)].set_facecolor("#D1FAE5")
 
     ax.set_title("Benchmark Summary Table", fontsize=13, fontweight="bold", pad=15)
 
@@ -788,6 +843,7 @@ def main():
     parser.add_argument("--obstacles", type=int, default=2, help="Number of obstacles")
     parser.add_argument("--cr", type=float, default=0.5, help="Communication radius")
     parser.add_argument("--model", default="results/marl/final_model.pt", help="Path to trained MA2C model")
+    parser.add_argument("--model-no-omm", default=None, help="Optional separate model path for Dec-CTDSP + MA2C (no OMM)")
     parser.add_argument("--output", default="results/benchmark", help="Output directory")
     parser.add_argument("--quick", action="store_true", help="Quick test (fewer runs)")
     args = parser.parse_args()
@@ -808,6 +864,7 @@ def main():
         num_obstacles=args.obstacles,
         cr=args.cr,
         model_path=args.model,
+        model_path_no_omm=args.model_no_omm,
         output_dir=args.output,
         verbose=True,
     )
@@ -839,6 +896,7 @@ def main():
         "Network Throughput",
         os.path.join(args.output, "benchmark_throughput.png"),
         lower_is_better=False,
+        show_error_bars=False,
     )
 
     plot_comparison_bar(
