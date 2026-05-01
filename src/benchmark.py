@@ -50,8 +50,9 @@ import torch
 
 CONFIG_LABELS = {
     "hdv_only": "HDV only\n(baseline)",
-    "static_dijkstra": "Static Dijkstra\n",
+    "static_dijkstra": "Static Dijkstra\n(no OMM)",
     "dec_ctdsp": "Dec-CTDSP\n+ OMM",
+    "dec_ctdsp_omm_no_decay": "Dec-CTDSP\n+ OMM\n(no TTL decay)",
     "dec_ctdsp_ma2c_no_omm": "Dec-CTDSP\n+ MA2C\n(no OMM)",
     "dec_ctdsp_rule_heuristic": "Dec-CTDSP\n+ OMM + Rule\n(heuristic)",
     "dec_ctdsp_ma2c_no_gat": "Dec-CTDSP\n+ OMM + MA2C\n(no GAT)",
@@ -62,6 +63,7 @@ CONFIG_COLORS = {
     "hdv_only": "#94A3B8",              
     "static_dijkstra": "#F59E0B",       
     "dec_ctdsp": "#3B82F6",             
+    "dec_ctdsp_omm_no_decay": "#2563EB",
     "dec_ctdsp_ma2c_no_omm": "#8B5CF6", 
     "dec_ctdsp_rule_heuristic": "#0EA5A4",
     "dec_ctdsp_ma2c_no_gat": "#6366F1",
@@ -72,6 +74,7 @@ CONFIG_ORDER = [
     "hdv_only",
     "static_dijkstra",
     "dec_ctdsp",
+    "dec_ctdsp_omm_no_decay",
     "dec_ctdsp_ma2c_no_omm",
     "dec_ctdsp_rule_heuristic",
     "dec_ctdsp_ma2c_no_gat",
@@ -131,6 +134,32 @@ def run_dec_ctdsp(config: SimConfig, seed: int) -> Dict:
     metrics = sim.run(verbose=False)
     summary = metrics.summary()
     summary["config_name"] = "dec_ctdsp"
+    summary["mstt_std"] = float(np.std(metrics.mstt_history[-100:])) if len(metrics.mstt_history) >= 100 else 0.0
+    return summary
+
+
+def run_dec_ctdsp_omm_no_decay(config: SimConfig, seed: int) -> Dict:
+    """
+    Run Dec-CTDSP + OMM without TTL-based decay (original-style persistent OMM).
+
+    Practical implementation:
+    - Use a very large blacklist TTL so per-vehicle local decay never expires entries
+      within benchmark horizon.
+    - Disable global periodic decay refresh/removal pass.
+    """
+    cfg = SimConfig(
+        **{
+            **config.__dict__,
+            "market_penetration": 1.0,
+            "seed": seed,
+            "blacklist_ttl": 10**9,
+        }
+    )
+    sim = Simulator(cfg)
+    sim.comm_manager.decay_all_blacklists = lambda *args, **kwargs: {}
+    metrics = sim.run(verbose=False)
+    summary = metrics.summary()
+    summary["config_name"] = "dec_ctdsp_omm_no_decay"
     summary["mstt_std"] = float(np.std(metrics.mstt_history[-100:])) if len(metrics.mstt_history) >= 100 else 0.0
     return summary
 
@@ -306,6 +335,7 @@ def _run_with_trained_agent(
     enable_omm: bool,
     use_gat_context: bool = True,
     use_rule_policy: bool = False,
+    omm_no_decay: bool = False,
 ) -> Dict:
     """
     runs a simulation where the trained MA2C agent
@@ -322,7 +352,7 @@ def _run_with_trained_agent(
     tc.market_penetration = cfg.market_penetration
     tc.communication_radius = cfg.communication_radius
     tc.num_obstacles = cfg.num_obstacles
-    tc.blacklist_ttl = cfg.blacklist_ttl
+    tc.blacklist_ttl = 10**9 if omm_no_decay else cfg.blacklist_ttl
     tc.grid_rows = cfg.grid_rows
     tc.grid_cols = cfg.grid_cols
     tc.steps_per_episode = cfg.max_timesteps
@@ -345,6 +375,8 @@ def _run_with_trained_agent(
     if not enable_omm:
         env.comm.broadcast_obstacle = lambda *args, **kwargs: 0
         env.comm.propagate_confirmations = lambda *args, **kwargs: 0
+        env.comm.decay_all_blacklists = lambda *args, **kwargs: {}
+    elif omm_no_decay:
         env.comm.decay_all_blacklists = lambda *args, **kwargs: {}
 
     # Run the episode, tracking metrics manually
@@ -538,6 +570,7 @@ def run_benchmark(
         ("hdv_only", run_hdv_only),
         ("static_dijkstra", run_static_dijkstra),
         ("dec_ctdsp", run_dec_ctdsp),
+        ("dec_ctdsp_omm_no_decay", run_dec_ctdsp_omm_no_decay),
         ("dec_ctdsp_ma2c_no_omm", lambda c, s: run_dec_ctdsp_ma2c_no_omm(c, s, no_omm_model)),
         ("dec_ctdsp_rule_heuristic", lambda c, s: run_dec_ctdsp_rule_heuristic(c, s)),
         ("dec_ctdsp_ma2c_no_gat", lambda c, s: run_dec_ctdsp_ma2c_no_gat(c, s, no_gat_model)),

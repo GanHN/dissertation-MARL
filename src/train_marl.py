@@ -61,6 +61,8 @@ class TrainConfig:
     blacklist_ttl: int = BLACKLIST_TTL
     grid_rows: int = GRID_ROWS
     grid_cols: int = GRID_COLS
+    enable_omm: bool = True
+    enable_gat_context: bool = True
 
     # Training
     num_episodes: int = 300
@@ -209,8 +211,13 @@ class MARLEnvironment:
         # Update environment
         self.obstacle_mgr.update(self.timestep)
         self.comm.update_clusters(self.vehicles, self.network)
-        self.comm.propagate_confirmations(self.vehicles, self.network, self.timestep)
-        self.comm.decay_all_blacklists(self.vehicles, self.timestep)
+        if self.config.enable_omm:
+            self.comm.propagate_confirmations(self.vehicles, self.network, self.timestep)
+            self.comm.decay_all_blacklists(self.vehicles, self.timestep)
+        else:
+            # No-OMM ablation: remove persistent obstacle memory.
+            for v in self.cavs:
+                v.blacklist.clear()
 
         # Move HDVs (they don't use MARL actions)
         for v in self.vehicles:
@@ -272,9 +279,10 @@ class MARLEnvironment:
         # when the vehicle is at an intersection.
         if not cav.is_at_intersection():
             if cav.link_end_node is not None and self.network.is_node_blocked(cav.link_end_node):
-                self.comm.broadcast_obstacle(
-                    cav, cav.link_end_node, self.vehicles, self.timestep
-                )
+                if self.config.enable_omm:
+                    self.comm.broadcast_obstacle(
+                        cav, cav.link_end_node, self.vehicles, self.timestep
+                    )
             moved = self._advance_vehicle(cav)
             is_stalled = not moved
 
@@ -286,7 +294,7 @@ class MARLEnvironment:
                 and self.network.is_node_blocked(next_node)
             )
 
-            if blocked_ahead and isinstance(cav, CAV):
+            if blocked_ahead and isinstance(cav, CAV) and self.config.enable_omm:
                 self.comm.broadcast_obstacle(
                     cav, next_node, self.vehicles, self.timestep
                 )
@@ -295,8 +303,10 @@ class MARLEnvironment:
             if action == 0:  # Follow Dec-CTDSP route
                 if blocked_ahead:
                     is_stalled = True
-                    cluster = self.comm.get_cluster_members(
-                        cav.vehicle_id, self.vehicles
+                    cluster = (
+                        self.comm.get_cluster_members(cav.vehicle_id, self.vehicles)
+                        if self.config.enable_omm
+                        else []
                     )
                     cav.compute_route(
                         self.network, self.timestep, cluster_vehicles=cluster
@@ -317,8 +327,10 @@ class MARLEnvironment:
                     cav.num_route_recalculations += 1
                 else:
                     # Safety fallback if no valid alternative exists.
-                    cluster = self.comm.get_cluster_members(
-                        cav.vehicle_id, self.vehicles
+                    cluster = (
+                        self.comm.get_cluster_members(cav.vehicle_id, self.vehicles)
+                        if self.config.enable_omm
+                        else []
                     )
                     cav.compute_route(
                         self.network, self.timestep, cluster_vehicles=cluster
@@ -331,9 +343,10 @@ class MARLEnvironment:
                     and self.network.is_node_blocked(next_after)
                 )
                 if blocked_after and next_after is not None:
-                    self.comm.broadcast_obstacle(
-                        cav, next_after, self.vehicles, self.timestep
-                    )
+                    if self.config.enable_omm:
+                        self.comm.broadcast_obstacle(
+                            cav, next_after, self.vehicles, self.timestep
+                        )
                 if not blocked_after:
                     moved = self._advance_vehicle(cav)
                     is_stalled = not moved
@@ -344,8 +357,10 @@ class MARLEnvironment:
                 is_stalled = True
 
             elif action == 3:  # Reroute
-                cluster = self.comm.get_cluster_members(
-                    cav.vehicle_id, self.vehicles
+                cluster = (
+                    self.comm.get_cluster_members(cav.vehicle_id, self.vehicles)
+                    if self.config.enable_omm
+                    else []
                 )
                 cav.compute_route(
                     self.network, self.timestep, cluster_vehicles=cluster
@@ -357,9 +372,10 @@ class MARLEnvironment:
                     and self.network.is_node_blocked(next_after)
                 )
                 if blocked_after and next_after is not None:
-                    self.comm.broadcast_obstacle(
-                        cav, next_after, self.vehicles, self.timestep
-                    )
+                    if self.config.enable_omm:
+                        self.comm.broadcast_obstacle(
+                            cav, next_after, self.vehicles, self.timestep
+                        )
                 if not blocked_after:
                     moved = self._advance_vehicle(cav)
                     is_stalled = not moved
@@ -760,6 +776,8 @@ def train(
         print(f"  Vehicles:       {config.num_vehicles} (MP={config.market_penetration:.0%})")
         print(f"  Rollout length: {config.rollout_length}")
         print(f"  Learning rate:  {config.learning_rate}")
+        print(f"  OMM enabled:    {config.enable_omm}")
+        print(f"  GAT context:    {config.enable_gat_context}")
         print(f"  Log interval:   every {config.log_interval} episodes")
         print(f"  Save interval:  every {config.save_interval} episodes")
         print(f"  Save dir:       {config.save_dir}")
@@ -800,7 +818,13 @@ def train(
             # through the GAT during training re-run the GAT in update()
             # using the stored raw inputs to compute the actual gradient.
             with torch.no_grad():
-                contexts = agent.gat(node_features, edge_index)
+                if config.enable_gat_context:
+                    contexts = agent.gat(node_features, edge_index)
+                else:
+                    contexts = torch.zeros(
+                        (len(vid_order), agent.config.context_dim),
+                        dtype=torch.float32,
+                    )
 
             # Select actions for each CAV
             actions: Dict[int, int] = {}
@@ -1018,7 +1042,13 @@ def evaluate(
                 break
 
             with torch.no_grad():
-                contexts = agent.gat(node_features, edge_index)
+                if config.enable_gat_context:
+                    contexts = agent.gat(node_features, edge_index)
+                else:
+                    contexts = torch.zeros(
+                        (len(vid_order), agent.config.context_dim),
+                        dtype=torch.float32,
+                    )
 
             actions = {}
             local_obs_map = env.get_observations()
@@ -1141,6 +1171,16 @@ if __name__ == "__main__":
     )
     parser.add_argument("--save-dir", default="results/marl", help="Save directory")
     parser.add_argument("--log-interval", type=int, default=0, help="Log every N episodes (0=auto, every 10%% of episodes)")
+    parser.add_argument(
+        "--disable-omm",
+        action="store_true",
+        help="Train/evaluate without OMM persistence and confirmation propagation.",
+    )
+    parser.add_argument(
+        "--disable-gat-context",
+        action="store_true",
+        help="Train/evaluate MA2C with zero GAT context.",
+    )
     args = parser.parse_args()
 
     config = TrainConfig()
@@ -1148,6 +1188,8 @@ if __name__ == "__main__":
     config.steps_per_episode = args.steps
     config.num_vehicles = args.vehicles
     config.save_dir = args.save_dir
+    config.enable_omm = not args.disable_omm
+    config.enable_gat_context = not args.disable_gat_context
     config.log_interval = args.log_interval if args.log_interval > 0 else max(1, args.episodes // 10)
     config.save_interval = max(1, args.episodes // 4)
     config.eval_interval = max(1, args.episodes // 4)
