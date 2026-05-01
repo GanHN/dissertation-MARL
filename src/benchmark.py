@@ -50,9 +50,11 @@ import torch
 
 CONFIG_LABELS = {
     "hdv_only": "HDV only\n(baseline)",
-    "static_dijkstra": "Static Dijkstra\n(no OMM)",
+    "static_dijkstra": "Static Dijkstra\n",
     "dec_ctdsp": "Dec-CTDSP\n+ OMM",
     "dec_ctdsp_ma2c_no_omm": "Dec-CTDSP\n+ MA2C\n(no OMM)",
+    "dec_ctdsp_rule_heuristic": "Dec-CTDSP\n+ OMM + Rule\n(heuristic)",
+    "dec_ctdsp_ma2c_no_gat": "Dec-CTDSP\n+ OMM + MA2C\n(no GAT)",
     "dec_ctdsp_marl": "Dec-CTDSP\n+ OMM + MA2C\n(full system)",
 }
 
@@ -61,8 +63,22 @@ CONFIG_COLORS = {
     "static_dijkstra": "#F59E0B",       
     "dec_ctdsp": "#3B82F6",             
     "dec_ctdsp_ma2c_no_omm": "#8B5CF6", 
+    "dec_ctdsp_rule_heuristic": "#0EA5A4",
+    "dec_ctdsp_ma2c_no_gat": "#6366F1",
     "dec_ctdsp_marl": "#10B981",        
 }
+
+CONFIG_ORDER = [
+    "hdv_only",
+    "static_dijkstra",
+    "dec_ctdsp",
+    "dec_ctdsp_ma2c_no_omm",
+    "dec_ctdsp_rule_heuristic",
+    "dec_ctdsp_ma2c_no_gat",
+    "dec_ctdsp_marl",
+]
+
+COMPARISON_ORDER = [cfg for cfg in CONFIG_ORDER if cfg != "hdv_only"]
 
 
 
@@ -188,12 +204,108 @@ def run_dec_ctdsp_ma2c_no_omm(
     )
 
 
+def run_dec_ctdsp_rule_heuristic(
+    config: SimConfig,
+    seed: int,
+) -> Dict:
+    """
+    Run Dec-CTDSP + OMM with a fixed rule-based policy instead of MA2C.
+
+    This isolates whether the learned policy adds value beyond a simple
+    handcrafted decision policy over the same action space.
+    """
+    cfg = SimConfig(**{**config.__dict__, "market_penetration": 1.0, "seed": seed})
+    return _run_with_trained_agent(
+        cfg,
+        seed,
+        model_path=None,
+        config_name="dec_ctdsp_rule_heuristic",
+        enable_omm=True,
+        use_gat_context=False,
+        use_rule_policy=True,
+    )
+
+
+def run_dec_ctdsp_ma2c_no_gat(
+    config: SimConfig,
+    seed: int,
+    model_path: Optional[str] = None,
+) -> Dict:
+    """
+    Run Dec-CTDSP + OMM + MA2C with GAT context disabled at execution time.
+
+    This isolates the effect of inter-agent context aggregation vs.
+    independent local decision-making.
+    """
+    cfg = SimConfig(**{**config.__dict__, "market_penetration": 1.0, "seed": seed})
+    if not (model_path and os.path.exists(model_path)):
+        sim = Simulator(cfg)
+        metrics = sim.run(verbose=False)
+        summary = metrics.summary()
+        summary["config_name"] = "dec_ctdsp_ma2c_no_gat"
+        summary["mstt_std"] = float(np.std(metrics.mstt_history[-100:])) if len(metrics.mstt_history) >= 100 else 0.0
+        summary["marl_model_used"] = False
+        return summary
+
+    return _run_with_trained_agent(
+        cfg,
+        seed,
+        model_path=model_path,
+        config_name="dec_ctdsp_ma2c_no_gat",
+        enable_omm=True,
+        use_gat_context=False,
+        use_rule_policy=False,
+    )
+
+
+def _rule_action_for_cav(env, cav: CAV) -> int:
+    """
+    Handcrafted policy over the 4-action space:
+      0 follow, 1 alternative, 2 wait, 3 reroute
+    """
+    if cav.state != VehicleState.EN_ROUTE:
+        return 0
+    if not cav.is_at_intersection():
+        return 0
+
+    next_node = cav.get_next_node()
+    if next_node is None:
+        return 3
+    if env.network.is_node_blocked(next_node):
+        return 3
+
+    blacklisted = cav.get_blacklisted_nodes()
+    remaining = cav.get_remaining_route()
+    if any(node in blacklisted for node in remaining):
+        return 3
+
+    stall_steps = env._stall_counters.get(cav.vehicle_id, 0)
+    if stall_steps >= 3:
+        return 3
+
+    density_ratio = 0.0
+    from_n = cav.current_node
+    to_n = next_node
+    if env.network.graph.has_edge(from_n, to_n):
+        density = env.network.get_edge_density(from_n, to_n)
+        capacity = env.network.graph.edges[from_n, to_n]["capacity"]
+        density_ratio = density / max(1, capacity)
+
+    if density_ratio >= 0.95 and stall_steps >= 1:
+        return 2
+    if density_ratio >= 0.80:
+        return 1
+    return 0
+
+
 def _run_with_trained_agent(
     cfg: SimConfig,
     seed: int,
-    model_path: str,
+    model_path: Optional[str],
     config_name: str,
     enable_omm: bool,
+    use_gat_context: bool = True,
+    use_rule_policy: bool = False,
 ) -> Dict:
     """
     runs a simulation where the trained MA2C agent
@@ -216,10 +328,16 @@ def _run_with_trained_agent(
     tc.steps_per_episode = cfg.max_timesteps
     tc.seed = seed
 
-    # Load trained agent
-    agent = MA2CAgent()
-    agent.load(model_path)
-    agent.set_eval_mode()
+    # Load trained agent (not required for pure heuristic mode)
+    agent: Optional[MA2CAgent] = None
+    if not use_rule_policy:
+        if not (model_path and os.path.exists(model_path)):
+            raise FileNotFoundError(
+                f"Model path required for {config_name}: {model_path}"
+            )
+        agent = MA2CAgent()
+        agent.load(model_path)
+        agent.set_eval_mode()
 
     # Build environment
     env = MARLEnvironment(tc)
@@ -280,25 +398,38 @@ def _run_with_trained_agent(
             prev_total_wait = curr_total_wait
             continue
 
-        # Run GAT + actor to pick actions
-        with torch.no_grad():
-            contexts = agent.gat(node_features, edge_index)
-
         actions: Dict[int, int] = {}
-        vid_to_idx = {vid: i for i, vid in enumerate(vid_order)}
-        local_obs_map = env.get_observations()
+        if use_rule_policy:
+            cav_by_id = {cav.vehicle_id: cav for cav in env.cavs}
+            for vid in vid_order:
+                cav = cav_by_id.get(vid)
+                actions[vid] = _rule_action_for_cav(env, cav) if cav else 0
+        else:
+            assert agent is not None
+            # MA2C action selection, with optional GAT context disabled.
+            if use_gat_context:
+                with torch.no_grad():
+                    contexts = agent.gat(node_features, edge_index)
+            else:
+                contexts = torch.zeros(
+                    (len(vid_order), agent.config.context_dim),
+                    dtype=torch.float32,
+                )
 
-        for vid in vid_order:
-            idx = vid_to_idx[vid]
-            local_obs = local_obs_map.get(vid)
-            if local_obs is None:
-                actions[vid] = 0
-                continue
-            context = contexts[idx]
-            action, _, _ = agent.act(
-                local_obs, context, global_state, deterministic=True
-            )
-            actions[vid] = action
+            vid_to_idx = {vid: i for i, vid in enumerate(vid_order)}
+            local_obs_map = env.get_observations()
+
+            for vid in vid_order:
+                idx = vid_to_idx[vid]
+                local_obs = local_obs_map.get(vid)
+                if local_obs is None:
+                    actions[vid] = 0
+                    continue
+                context = contexts[idx]
+                action, _, _ = agent.act(
+                    local_obs, context, global_state, deterministic=True
+                )
+                actions[vid] = action
 
         # Step environment
         env.step(actions)
@@ -365,7 +496,8 @@ def _run_with_trained_agent(
         "collision_rate_per_10k_vehicle_steps": round((total_collisions * 10000.0) / max(1, total_vehicle_steps), 3),
         "timesteps_run": len(mstt_history),
         "mstt_std": float(np.std(mstt_history[-100:])) if len(mstt_history) >= 100 else 0.0,
-        "marl_model_used": True,
+        "marl_model_used": not use_rule_policy,
+        "uses_gat_context": use_gat_context and not use_rule_policy,
     }
 
 
@@ -378,6 +510,7 @@ def run_benchmark(
     cr: float = COMM_RADIUS,
     model_path: Optional[str] = None,
     model_path_no_omm: Optional[str] = None,
+    model_path_no_gat: Optional[str] = None,
     output_dir: str = "results/benchmark",
     verbose: bool = True,
 ) -> pd.DataFrame:
@@ -399,12 +532,15 @@ def run_benchmark(
 
     all_results = []
     no_omm_model = model_path_no_omm or model_path
+    no_gat_model = model_path_no_gat or model_path
 
     configs = [
         ("hdv_only", run_hdv_only),
         ("static_dijkstra", run_static_dijkstra),
         ("dec_ctdsp", run_dec_ctdsp),
         ("dec_ctdsp_ma2c_no_omm", lambda c, s: run_dec_ctdsp_ma2c_no_omm(c, s, no_omm_model)),
+        ("dec_ctdsp_rule_heuristic", lambda c, s: run_dec_ctdsp_rule_heuristic(c, s)),
+        ("dec_ctdsp_ma2c_no_gat", lambda c, s: run_dec_ctdsp_ma2c_no_gat(c, s, no_gat_model)),
         ("dec_ctdsp_marl", lambda c, s: run_dec_ctdsp_marl(c, s, model_path)),
     ]
 
@@ -418,6 +554,7 @@ def run_benchmark(
         print(f"  CR:          {cr}")
         print(f"  MARL model:  {model_path or 'N/A'}")
         print(f"  no-OMM model:{no_omm_model or 'N/A'}")
+        print(f"  no-GAT model:{no_gat_model or 'N/A'}")
         print("=" * 60)
 
     start = time.time()
@@ -463,7 +600,7 @@ def plot_comparison_bar(
     grouped = df.groupby("config_name")[metric].agg(["mean", "std"]).reset_index()
 
     # Preserve order
-    order = ["hdv_only", "static_dijkstra", "dec_ctdsp", "dec_ctdsp_ma2c_no_omm", "dec_ctdsp_marl"]
+    order = CONFIG_ORDER
     grouped["order"] = grouped["config_name"].map({n: i for i, n in enumerate(order)})
     grouped = grouped.sort_values("order").reset_index(drop=True)
 
@@ -472,7 +609,7 @@ def plot_comparison_bar(
     means = grouped["mean"].values
     stds = grouped["std"].fillna(0).values
 
-    fig, ax = plt.subplots(figsize=(9, 5.5))
+    fig, ax = plt.subplots(figsize=(12, 6))
     if show_error_bars:
         bars = ax.bar(
             labels, means, yerr=stds,
@@ -530,7 +667,7 @@ def plot_improvement_percentages(
     baseline = grouped[grouped["config_name"] == "hdv_only"].iloc[0]
 
     comparisons = []
-    for cfg in ["static_dijkstra", "dec_ctdsp", "dec_ctdsp_ma2c_no_omm", "dec_ctdsp_marl"]:
+    for cfg in COMPARISON_ORDER:
         row = grouped[grouped["config_name"] == cfg].iloc[0]
         comparisons.append({
             "config": cfg,
@@ -539,7 +676,7 @@ def plot_improvement_percentages(
             "trips_improvement": ((row["total_trips"] - baseline["total_trips"]) / baseline["total_trips"] * 100) if baseline["total_trips"] > 0 else 0,
         })
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
+    fig, ax = plt.subplots(figsize=(12, 6))
 
     x = np.arange(len(comparisons))
     width = 0.26
@@ -608,7 +745,7 @@ def plot_radar_chart(
 
     # Normalise all metrics to 0-1 (higher=better after normalisation)
     # For metrics where lower is better, we invert
-    order = ["hdv_only", "static_dijkstra", "dec_ctdsp", "dec_ctdsp_ma2c_no_omm", "dec_ctdsp_marl"]
+    order = CONFIG_ORDER
     grouped["order"] = grouped["config_name"].map({n: i for i, n in enumerate(order)})
     grouped = grouped.sort_values("order").reset_index(drop=True)
 
@@ -683,7 +820,7 @@ def plot_summary_table(df: pd.DataFrame, save_path: str) -> None:
         "mstt_std": "mean",
     }).round(3)
 
-    order = ["hdv_only", "static_dijkstra", "dec_ctdsp", "dec_ctdsp_ma2c_no_omm", "dec_ctdsp_marl"]
+    order = CONFIG_ORDER
     grouped = grouped.reindex(order)
 
     fig, ax = plt.subplots(figsize=(12, 4))
@@ -777,7 +914,7 @@ def plot_safety_tradeoff(df: pd.DataFrame, save_path: str) -> None:
         "collision_rate_per_1000_trips": ["mean", "std"],
     })
 
-    order = ["hdv_only", "static_dijkstra", "dec_ctdsp", "dec_ctdsp_ma2c_no_omm", "dec_ctdsp_marl"]
+    order = CONFIG_ORDER
 
     fig, ax = plt.subplots(figsize=(8.5, 6.0))
     for cfg in order:
@@ -827,6 +964,7 @@ def main():
     parser.add_argument("--cr", type=float, default=COMM_RADIUS, help="Communication radius")
     parser.add_argument("--model", default="results/marl/final_model.pt", help="Path to trained MA2C model")
     parser.add_argument("--model-no-omm", default=None, help="Optional separate model path for Dec-CTDSP + MA2C (no OMM)")
+    parser.add_argument("--model-no-gat", default=None, help="Optional separate model path for Dec-CTDSP + MA2C (no GAT)")
     parser.add_argument("--output", default="results/benchmark", help="Output directory")
     parser.add_argument("--quick", action="store_true", help="Quick test (fewer runs)")
     args = parser.parse_args()
@@ -848,6 +986,7 @@ def main():
         cr=args.cr,
         model_path=args.model,
         model_path_no_omm=args.model_no_omm,
+        model_path_no_gat=args.model_no_gat,
         output_dir=args.output,
         verbose=True,
     )
