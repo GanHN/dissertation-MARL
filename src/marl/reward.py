@@ -2,7 +2,6 @@
 reward.py - Multi-Objective Reward Function
 The reward function that defines what "good driving" means for the
 MARL agents. This is a key design contribution of the project.
-
 The total reward at each timestep is a weighted sum of five terms:
 
     R(t) = w_p * R_progress + w_a * R_arrival + w_s * R_safety
@@ -20,15 +19,6 @@ Terms:
 
     R_wait:      Penalty for each timestep spent stalled (blocked by
                  obstacle or gridlocked). Pushes agents to reroute.
-
-Design rationale:
-    - Progress reward gives a continuous gradient toward the goal,
-      preventing the "loop forever" problem.
-    - Arrival bonus with time scaling incentivises efficiency.
-    - Safety penalty is continuous, not just binary collision detection,
-      so the agent learns to avoid *near*-collisions too.
-    - Wait penalty is small per-step so the agent prefers rerouting
-      over waiting, but doesn't panic over short delays.
 """
 
 from __future__ import annotations
@@ -46,15 +36,14 @@ if TYPE_CHECKING:
 class RewardConfig:
     """
     Weights and parameters for each reward component.
-
-    Tune these to change agent behaviour. Higher weight = stronger signal.
+    Higher weight = stronger signal.
     """
     # Progress reward
     w_progress: float = 1.0
     progress_per_block: float = 1.0     # Reward per block of progress
 
     # Arrival bonus
-    w_arrival: float = 5.0              # was 5.0,
+    w_arrival: float = 3.0              # was 5.0,
     arrival_base: float = 20.0          # Base bonus for reaching destination   # was 20.0
     arrival_time_scale: float = 0.5     # How much to penalise slow trips
     optimal_trip_time: float = 5.0      # Expected min trip time (for scaling)
@@ -72,7 +61,7 @@ class RewardConfig:
 
     # Explicit safety-event penalties
     w_event_safety: float = 1.0
-    near_miss_penalty: float = -5.0          # was -2.0, increased to make it more significant
+    near_miss_penalty: float = -10.0          # was -2.0, increased to make it more significant
     collision_event_penalty: float = -40.0   # was -25.0
 
 

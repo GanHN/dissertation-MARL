@@ -2,7 +2,6 @@
 simulator.py - Main Simulation Loop
 The central engine that ties all modules together and runs the
 agent-based traffic simulation.
-
 Each timestep:
     1. Update communication clusters
     2. Propagate obstacle confirmations (OMM)
@@ -13,15 +12,6 @@ Each timestep:
     5. Move vehicles along their routes
     6. Handle arrivals -> reset for new trip (continuous format)
     7. Record metrics (MSTT, MSS, wait times, recalculations)
-
-From the paper:
-    "Each vehicle returns to its origin after reaching the destination
-     and starts another trip, making the problem domain sequential
-     and open-ended."
-
-    "The simulation is run until the MSTT of the system converges.
-     This event is defined as the standard deviation of the last 200
-     readings dropping below 2%."
 """
 
 from __future__ import annotations
@@ -52,12 +42,11 @@ class SimConfig:
     grid_cols: int = 6
     link_capacity: int = 5
 
-    # Fleet
     num_vehicles: int = 100
     market_penetration: float = 1.0      # 0.0 to 1.0
 
     # Communication
-    communication_radius: float = 0.5    # In block units
+    communication_radius: float = 1.0    # In block units   was 0.5
 
     # OMM
     blacklist_ttl: int = 40      # was 50

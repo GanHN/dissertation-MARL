@@ -1,11 +1,6 @@
 """
 grid_network.py - Transportation Network for CAV Simulation
 Builds the grid-based road network used by the Dec-CTDSP routing algorithm.
-
-Based on the domain described in:
-    Mostafizi et al., "A Decentralized and Coordinated Routing Algorithm
-    for Connected and Autonomous Vehicles," IEEE Trans. ITS, 2022.
-
 Network layout:
     - 6x6 grid of intersections (nodes labelled (row, col) where row=0 is top)
     - East-west streets: ONE-WAY towards east (left -> right)
@@ -41,11 +36,6 @@ class NetworkConfig:
 def speed_density(density: float, capacity: int, speed_limit: float = 1.0) -> float:
     """
     Compute the speed on a link given its current vehicle density.
-
-    This replicates the speed-density curve from the Dec-CTDSP paper
-    (Figure 2, bottom right). Speed decreases linearly from the speed
-    limit as density approaches the link capacity.
-
     Args:
         density:     Number of vehicles currently on the link.
         capacity:    Maximum vehicles the link can hold.

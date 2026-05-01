@@ -1,19 +1,8 @@
 """
 vehicle.py - Vehicle Agents for CAV Simulation
 Defines the vehicle types that operate on the grid network.
-
-Vehicle hierarchy:
-    Vehicle (base)  - position, destination, route, speed, travel stats
     CAV             - communication, OMM blacklist, Dec-CTDSP routing
     HDV             - predefined naive routing (no communication)
-
-HDV routing follows Equation 1 from Mostafizi et al. (2022):
-    The vehicle moves east first, then adjusts north/south to reach
-    the destination row. This replicates predictable rush-hour behaviour
-    of human drivers without navigational information.
-
-CAV routing is a placeholder here — the actual Dec-CTDSP algorithm
-will be implemented in src/routing/dec_ctdsp.py and called by the CAV.
 """
 
 from __future__ import annotations
@@ -46,10 +35,6 @@ class VehicleState(Enum):
 class MobilityMessage:
     """
     Lightweight message broadcasted by a CAV to its communication cluster.
-
-    From the paper: "basic mobility messages regarding the location, speed,
-    and preferred path of each CAV can be communicated to its own CAV cluster."
-
     This is ~12-16 bytes: vehicle_id + node + speed + route hash.
     """
     vehicle_id: int
@@ -230,9 +215,6 @@ class Vehicle:
     def reset_for_new_trip(self, new_destination: Tuple[int, int]) -> None:
         """
         Reset the vehicle for a new trip (continuous simulation).
-
-        From the paper: "Each vehicle returns to its origin after reaching
-        the destination and starts another trip."
         """
         self.current_node = self.origin
         self.destination = new_destination
@@ -274,14 +256,6 @@ class Vehicle:
 class HDV(Vehicle):
     """
     Human-Driven Vehicle with predefined naive routing.
-
-    Uses the routing formula from Equation 1 of the Dec-CTDSP paper:
-        - Move east (right) first for (cols - 1 - dy) steps
-        - Then adjust vertically (up or down) for |dy| steps
-        - Then continue east for the remaining steps
-
-    Where dy = destination_row - origin_row.
-
     HDVs do NOT communicate and do NOT have an OMM blacklist.
     They are completely unaware of obstacles until they physically
     encounter one (at which point they simply wait).
@@ -409,7 +383,6 @@ class CAV(Vehicle):
     def add_to_blacklist(self, node: Tuple[int, int], timestep: int) -> None:
         """
         Add a blocked node to the OMM blacklist or refresh its TTL.
-
         If the node is already blacklisted, update last_confirmed.
         """
         if node in self.blacklist:
@@ -451,10 +424,6 @@ class CAV(Vehicle):
     ) -> None:
         """
         Handle an incoming obstacle broadcast from another CAV.
-
-        From your design: "Receiving CAVs permanently append this node
-        to their O(t) blacklist" — but with your confirmation-based
-        improvement, it refreshes the TTL instead of being permanent.
         """
         self.add_to_blacklist(blocked_node, timestep)
 
@@ -482,10 +451,6 @@ class CAV(Vehicle):
     ) -> None:
         """
         Compute route using Dec-CTDSP or fall back to random valid path.
-
-        From the paper: "the CAVs that do not have a sufficiently sized
-        CAV cluster choose their path to their destination randomly."
-
         Args:
             network:           The grid network.
             timestep:          Current simulation timestep.
@@ -582,10 +547,6 @@ class CAV(Vehicle):
 class VehicleFactory:
     """
     Creates a mixed fleet of CAVs and HDVs based on Market Penetration.
-
-    From the paper: "There are 100 vehicles uniformly distributed across
-    5 origins. Similarly, their destinations are randomly and uniformly
-    assigned to one of 5 destination nodes."
     """
 
     @staticmethod
@@ -599,7 +560,6 @@ class VehicleFactory:
     ) -> List[Vehicle]:
         """
         Create a mixed fleet of vehicles.
-
         Args:
             num_vehicles:       Total number of vehicles.
             market_penetration: Fraction of vehicles that are CAVs (0.0 to 1.0).

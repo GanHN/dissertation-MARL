@@ -2,30 +2,23 @@
 train_marl.py - Training Script for MA2C with GAT
 Connects the MARL components to the simulator and runs the
 Centralized Training with Decentralized Execution (CTDE) loop.
-
 Training loop:
     1. Reset the simulator for a new episode
     2. For each timestep in the episode:
-       a. Build observations for each CAV
-       b. Run GAT to get context vectors
-       c. Actor selects actions per CAV
-       d. Execute actions in the simulator
-       e. Compute rewards
-       f. Critic evaluates (with global state)
-       g. Store experience in rollout buffer
+       Build observations for each CAV
+       Run GAT to get context vectors
+       Actor selects actions per CAV
+       Execute actions in the simulator
+       Compute rewards
+       Critic evaluates (with global state)
+       Store experience in rollout buffer
     3. After rollout_length steps, compute advantages and update networks
     4. Log training metrics
-
-Actions (what the MA2C agent controls):
+Actions state:
     0: Follow Dec-CTDSP route — continue on the planned route
     1: Alternative route — take second-best path via modified Dijkstra
     2: Wait — stay at current intersection for one timestep
     3: Reroute — trigger a fresh Dec-CTDSP computation immediately
-
-Usage:
-    python src/train_marl.py                    # Full training
-    python src/train_marl.py --episodes 20      # Short training run
-    python src/train_marl.py --eval             # Evaluate saved model
 """
 
 from __future__ import annotations
@@ -72,8 +65,8 @@ class TrainConfig:
     # Training
     num_episodes: int = 300
     steps_per_episode: int = 100
-    rollout_length: int = 16
-    learning_rate: float = 5e-5
+    rollout_length: int = 24
+    learning_rate: float = 5e-5   # was 5e-5
     gamma: float = 0.99
     seed: int = 42
 
@@ -90,10 +83,8 @@ class TrainConfig:
 
 class MARLEnvironment:
     """
-    Wraps the grid simulation for MARL training.
-
-    Unlike the original Simulator which runs autonomously, this
-    environment exposes a step() interface where the MA2C agent
+    Wraps the grid simulation for MARL training. 
+    This environment exposes a step() interface where the MA2C agent
     controls CAV decisions at each intersection.
     """
 
@@ -205,11 +196,9 @@ class MARLEnvironment:
     def step(self, actions: Dict[int, int]) -> Dict[int, Tuple[float, bool, dict]]:
         """
         Execute one timestep with MA2C-selected actions for each CAV.
-
         Args:
             actions: {vehicle_id: action_id} for each CAV.
                      0=follow, 1=alternative, 2=wait, 3=reroute
-
         Returns:
             {vehicle_id: (reward, done, info)} for each CAV.
         """
@@ -550,7 +539,7 @@ class MARLEnvironment:
         return True
 
     def _move_hdv(self, v: HDV) -> None:
-        """Move an HDV one step (simple, no MARL)."""
+        """Move an HDV one step """
         if v.state != VehicleState.EN_ROUTE:
             return
         if v.is_at_intersection():
@@ -624,7 +613,6 @@ class MARLEnvironment:
     def get_gat_inputs(self) -> Tuple[torch.Tensor, torch.Tensor, List[int]]:
         """
         Build GAT input: stacked node features + edge index.
-
         Returns:
             (node_features, edge_index, vehicle_id_order)
         """
@@ -718,11 +706,13 @@ class MARLEnvironment:
 
 
 
-def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
+def train(
+    config: TrainConfig,
+    verbose: bool = True,
+    resume_from: Optional[str] = None,
+) -> MA2CAgent:
     """
-    Run the full MARL training loop.
-
-    Returns the trained MA2C agent.
+    Run the full MARL training loop and returns the trained MA2C agent.
     """
     os.makedirs(config.save_dir, exist_ok=True)
 
@@ -738,11 +728,15 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
     gamma=config.gamma,
     use_ppo_clip=True,
     reward_scale=0.01,
-    ppo_clip_epsilon=0.2,
+    ppo_clip_epsilon=0.18,  # was 0.2
     max_grad_norm=0.3,
     entropy_coeff=0.01,              # was 0.02
     )
     agent = MA2CAgent(ma2c_config)
+    if resume_from:
+        if not os.path.exists(resume_from):
+            raise FileNotFoundError(f"Resume checkpoint not found: {resume_from}")
+        agent.load(resume_from)
     env = MARLEnvironment(config)
 
     # Training metrics
@@ -758,6 +752,9 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
     if verbose:
         print("=" * 60)
         print("MA2C Training")
+        if resume_from:
+            print(f"  Resume from:    {resume_from}")
+            print(f"  Start updates:  {agent.total_updates}")
         print(f"  Episodes:       {config.num_episodes}")
         print(f"  Steps/episode:  {config.steps_per_episode}")
         print(f"  Vehicles:       {config.num_vehicles} (MP={config.market_penetration:.0%})")
@@ -770,7 +767,7 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
 
     start_time = time.time()
 
-    # Use tqdm for episode-level progress
+    # tqdm for episode-level progress
     if has_tqdm and verbose:
         episode_iter = tqdm(
             range(config.num_episodes),
@@ -800,7 +797,7 @@ def train(config: TrainConfig, verbose: bool = True) -> MA2CAgent:
                 break
 
             # GAT forward pass — NO torch.no_grad so gradients can flow
-            # through the GAT during training. We'll re-run the GAT in update()
+            # through the GAT during training re-run the GAT in update()
             # using the stored raw inputs to compute the actual gradient.
             with torch.no_grad():
                 contexts = agent.gat(node_features, edge_index)
@@ -1137,6 +1134,11 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=60, help="Steps per episode")
     parser.add_argument("--vehicles", type=int, default=20, help="Number of vehicles")
     parser.add_argument("--eval", action="store_true", help="Evaluate saved model")
+    parser.add_argument(
+        "--resume-from",
+        default=None,
+        help="Optional checkpoint path to continue training from (fine-tuning).",
+    )
     parser.add_argument("--save-dir", default="results/marl", help="Save directory")
     parser.add_argument("--log-interval", type=int, default=0, help="Log every N episodes (0=auto, every 10%% of episodes)")
     args = parser.parse_args()
@@ -1162,4 +1164,4 @@ if __name__ == "__main__":
         print(f"Evaluation avg reward: {avg_reward:.1f}")
     else:
         # Train
-        agent = train(config, verbose=True)
+        agent = train(config, verbose=True, resume_from=args.resume_from)

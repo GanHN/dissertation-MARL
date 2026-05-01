@@ -1,10 +1,7 @@
 """
 ma2c.py - Multi-Agent Advantage Actor-Critic (MA2C)
-=====================================================
 The MARL algorithm that learns cooperative driving policies using
 Centralized Training with Decentralized Execution (CTDE).
-
-Architecture:
     Actor:  GAT context + local obs -> action probabilities
             (decentralized — runs on each CAV independently)
 
@@ -54,22 +51,22 @@ class MA2CConfig:
     critic_hidden: int = 128
 
     # Training hyperparameters
-    learning_rate: float = 5e-5      # Lower LR = more stable updates (was 3e-4)
+    learning_rate: float = 5e-5      # Lower LR = more stable updates (was 3e-4)(was 5e-5)
     gamma: float = 0.99              # Discount factor
     gae_lambda: float = 0.95         # GAE lambda for advantage estimation
-    entropy_coeff: float = 0.02      # Entropy bonus for exploration (was 0.01)
+    entropy_coeff: float = 0.01      # Entropy bonus for exploration (was 0.01)
     value_loss_coeff: float = 0.5
     max_grad_norm: float = 0.3       # Tighter gradient clipping (was 0.5)
 
     # PPO-style clipping to prevent destructive policy updates
-    ppo_clip_epsilon: float = 0.2    # Limit how much policy can change per update
+    ppo_clip_epsilon: float = 0.18    # Limit how much policy can change per update     was 0.2
     use_ppo_clip: bool = True        # Enable PPO-style clipping in A2C
 
     # Reward normalisation
     reward_scale: float = 0.01       # Scale raw rewards to ~[-1, +1] range
 
     # Rollout
-    rollout_length: int = 32         # Steps before each update
+    rollout_length: int = 24         # Steps before each update    was 32
 
     # GAT
     gat_config: GATConfig = field(default_factory=GATConfig)

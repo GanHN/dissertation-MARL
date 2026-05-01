@@ -1,6 +1,6 @@
 """
 dec_ctdsp.py - Decentralized Collaborative Time-Dependent Shortest Path
-Direct implementation of the two core algorithms from:
+from:
     Mostafizi et al., "A Decentralized and Coordinated Routing Algorithm
     for Connected and Autonomous Vehicles," IEEE Trans. ITS, 2022.
 

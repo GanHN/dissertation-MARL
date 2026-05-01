@@ -2,7 +2,6 @@
 evaluate.py
 Runs systematic experiments sweeping Market Penetration (MP) and
 Communication Radius (CR), then produces plots.
-
 Experiments:
     1. MP Sweep:  Fix CR=0.5, vary MP from 0% to 100%
     2. CR Sweep:  Fix MP=100%, vary CR from 0.1 to 1.5
@@ -15,10 +14,6 @@ Outputs (saved to results/):
     - mstt_vs_cr.png        MSTT as a function of Communication Radius
     - results_table.csv     Raw numbers for all experiments
     - convergence.png       MSTT over time for selected configs
-
-Usage:
-    python src/evaluate.py                  # Run all experiments
-    python src/evaluate.py --quick          # Quick run (fewer configs, shorter sims)
 """
 
 from __future__ import annotations

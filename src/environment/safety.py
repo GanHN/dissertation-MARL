@@ -1,10 +1,8 @@
 """
 safety.py - Safety event detection utilities
-
 Adds lightweight safety metrics:
     - near-miss events (TTC below threshold)
     - collision events (very small headway with closing speed)
-
 The current traffic model is link-based and continuous along edges.
 So safety checks are evaluated on vehicles sharing the same directed link.
 """

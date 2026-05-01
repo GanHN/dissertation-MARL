@@ -1,30 +1,6 @@
 """
 comm_manager.py - Communication & Object Memory Management
 Handles all inter-vehicle communication for the CAV simulation.
-
-Two responsibilities:
-    1. Communication Clustering — groups CAVs by proximity using
-       a configurable Communication Radius (CR).
-    2. OMM Broadcasting — when a CAV detects a blocked node, the
-       obstacle message is propagated to every CAV in the cluster,
-       updating their blacklists with confirmation-based TTL.
-
-From the Dec-CTDSP paper:
-    "CR is presented in Block units. 1 Block is the distance between
-     two adjacent intersections. The CR projects radially from each
-     CAV to determine the communication cluster."
-
-    "CR = 0.5 Block yields a fully connected CAV network through
-     multi-hop connections."
-
-Key design decisions:
-    - Direct radius: CR is specified in block units and applied as a
-      radial Euclidean range around each vehicle's continuous position.
-    - Multi-hop clusters: if A connects to B and B connects to C,
-      then A, B, C are all in the same cluster (transitive closure).
-      This matches the paper's "fully connected multi-hop network".
-    - Obstacle broadcasts propagate to the ENTIRE cluster, not just
-      direct neighbours. This is realistic for multi-hop V2V.
 """
 
 from __future__ import annotations
@@ -56,10 +32,8 @@ class CommConfig:
 class ObstacleBroadcast:
     """
     Lightweight message (~12-16 bytes) sent when a CAV detects a blockage.
-
-    From your design: "When a CAV encounters a blocked intersection, it
-    broadcasts a lightweight 12-16 byte message containing the obstacle's
-    Node ID to its cluster."
+    When a CAV encounters a blocked intersection, it broadcasts a lightweight 12-16 byte message containing the obstacle's
+    Node ID to its cluster.
     """
     sender_id: int
     blocked_node: Tuple[int, int]
@@ -418,7 +392,6 @@ class CommunicationManager:
     ) -> Dict[int, List[Tuple[int, int]]]:
         """
         Decay expired blacklist entries for all CAVs.
-
         Returns a dict of {vehicle_id: [expired_nodes]} so the simulator
         can log which nodes were un-blacklisted.
         """

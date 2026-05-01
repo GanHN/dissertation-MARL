@@ -1,15 +1,12 @@
 """
 benchmark.py - Comprehensive System Benchmarking
-Compares full Dec-CTDSP + OMM + MA2C system against ablations
-and baselines to prove each component adds measurable value.
-
+Compares full Dec-CTDSP + OMM + MA2C system against ablations and baselines to prove each component adds measurable value.
 Configurations tested:
     1. HDV-only (MP=0%)             - No CAVs, pure HDV routing
     2. Static Dijkstra (no OMM)     - CAVs use Dijkstra but no obstacle memory
     3. Dec-CTDSP + OMM              - Full high-level routing system
     4. Dec-CTDSP + MA2C (no OMM)     - CAVs use MA2C for decisions but no OMM
-    5. Dec-CTDSP + OMM + MA2C       - Full system including trained MARL
-
+    5. Dec-CTDSP + OMM + MA2C       - Full system
 Metrics compared:
     - MSTT (Mean System Travel Time)
     - MSS (Mean System Speed)
@@ -18,14 +15,6 @@ Metrics compared:
     - Standard deviation of MSTT (reliability)
     - Number of stalled vehicles
     - Collision rates **
-
-Outputs:
-    - benchmark_mstt.png         Bar chart comparing MSTT across configs
-    - benchmark_wait_time.png    Wait time comparison (OMM proof)
-    - benchmark_throughput.png   Trip completion comparison
-    - benchmark_reliability.png  MSTT std deviation
-    - benchmark_radar.png        All metrics on a radar chart
-    - benchmark_results.csv      Raw numbers
 """
 
 from __future__ import annotations
@@ -68,11 +57,11 @@ CONFIG_LABELS = {
 }
 
 CONFIG_COLORS = {
-    "hdv_only": "#94A3B8",              # Gray
-    "static_dijkstra": "#F59E0B",       # Amber
-    "dec_ctdsp": "#3B82F6",             # Blue
-    "dec_ctdsp_ma2c_no_omm": "#8B5CF6", # Purple (new ablation)
-    "dec_ctdsp_marl": "#10B981",        # Green (full system)
+    "hdv_only": "#94A3B8",              
+    "static_dijkstra": "#F59E0B",       
+    "dec_ctdsp": "#3B82F6",             
+    "dec_ctdsp_ma2c_no_omm": "#8B5CF6", 
+    "dec_ctdsp_marl": "#10B981",        
 }
 
 
@@ -91,10 +80,8 @@ def run_hdv_only(config: SimConfig, seed: int) -> Dict:
 def run_static_dijkstra(config: SimConfig, seed: int) -> Dict:
     """
     Run with CAVs but WITHOUT Dec-CTDSP or OMM.
-
     CAVs use simple static Dijkstra (from vehicle.py fallback)
-    and their OMM blacklists are cleared each timestep, so they
-    effectively have no obstacle memory.
+    and their OMM blacklists are cleared each timestep, so they have no obstacle memory.
     """
     cfg = SimConfig(**{**config.__dict__, "market_penetration": 1.0, "seed": seed})
     sim = Simulator(cfg)
@@ -139,7 +126,6 @@ def run_dec_ctdsp_marl(
 ) -> Dict:
     """
     Run full system including trained MA2C agent making action decisions.
-
     Uses the MARL environment wrapper so the agent actually picks actions
     (follow/alternative/wait/reroute) rather than just running autonomously.
     Falls back to the autonomous simulator if no model is available.
@@ -169,7 +155,6 @@ def run_dec_ctdsp_ma2c_no_omm(
 ) -> Dict:
     """
     Run Dec-CTDSP + MA2C but WITHOUT OMM.
-
     CAVs use Dec-CTDSP for routing and the MA2C agent for decisions,
     but their blacklists are cleared every timestep so there's no
     persistent obstacle memory. This ablation proves whether OMM
@@ -211,9 +196,8 @@ def _run_with_trained_agent(
     enable_omm: bool,
 ) -> Dict:
     """
-    Internal helper: run a simulation where the trained MA2C agent
+    runs a simulation where the trained MA2C agent
     actually picks actions via the MARL environment.
-
     Tracks the same metrics as the autonomous Simulator so results
     are comparable across configs.
     """
@@ -740,7 +724,6 @@ def plot_summary_table(df: pd.DataFrame, save_path: str) -> None:
         cell.set_facecolor(CONFIG_COLORS[cfg])
         cell.set_text_props(color="white", weight="bold")
 
-    # Highlight actual per-metric best values.
     metric_specs = [
         (("final_mstt", "mean"), True),           # lower is better
         (("final_mss", "mean"), False),           # higher is better
