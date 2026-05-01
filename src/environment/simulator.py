@@ -46,7 +46,7 @@ class SimConfig:
     market_penetration: float = 1.0      # 0.0 to 1.0
 
     # Communication
-    communication_radius: float = 1.0    # In block units   was 0.5
+    communication_radius: float = 0.5    # In block units   was 0.5
 
     # OMM
     blacklist_ttl: int = 40      # was 50
