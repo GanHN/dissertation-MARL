@@ -61,8 +61,8 @@ class RewardConfig:
 
     # Explicit safety-event penalties
     w_event_safety: float = 1.0
-    near_miss_penalty: float = -10.0          # was -2.0, increased to make it more significant
-    collision_event_penalty: float = -60.0   # was -25.0
+    near_miss_penalty: float = -12.0          # was -2.0, increased to make it more significant
+    collision_event_penalty: float = -75.0   # was -25.0
 
 
 

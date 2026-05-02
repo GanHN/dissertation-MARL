@@ -50,7 +50,7 @@ import torch
 
 CONFIG_LABELS = {
     "hdv_only": "HDV only\n(baseline)",
-    "static_dijkstra": "Static Dijkstra\n(no OMM)",
+    "static_dijkstra": "Static Dijkstra",
     "dec_ctdsp": "Dec-CTDSP\n+ OMM",
     "dec_ctdsp_omm_no_decay": "Dec-CTDSP\n+ OMM\n(no TTL decay)",
     "dec_ctdsp_ma2c_no_omm": "Dec-CTDSP\n+ MA2C\n(no OMM)",

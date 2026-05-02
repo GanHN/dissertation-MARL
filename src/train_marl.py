@@ -832,6 +832,7 @@ def train(
 
             local_obs_map = env.get_observations()
 
+            rollout_vid_order: List[int] = []
             for vid in vid_order:
                 idx = vid_to_idx[vid]
                 local_obs = local_obs_map.get(vid)
@@ -855,6 +856,7 @@ def train(
                     gat_agent_idx=idx,
                     agent_id=vid,
                 )
+                rollout_vid_order.append(vid)
 
             # Step environment
             results = env.step(actions)
@@ -864,15 +866,17 @@ def train(
             for vid, (reward, done, info) in results.items():
                 total_step_reward += reward
 
-            # Set reward for the last batch of rollout entries
-            num_entries = len(vid_order)
-            for i in range(num_entries):
-                idx = len(agent.rollout) - num_entries + i
-                if 0 <= idx < len(agent.rollout.rewards):
-                    vid = vid_order[i]
-                    r = results.get(vid, (0.0, False, {}))[0]
-                    agent.rollout.rewards[idx] = r
-                    agent.rollout.dones[idx] = results.get(vid, (0, False, {}))[1]
+            # Set reward/done only for entries actually pushed into rollout.
+            # If any local_obs was missing, fewer entries were added than vid_order.
+            num_entries = len(rollout_vid_order)
+            if num_entries > 0:
+                start_idx = len(agent.rollout) - num_entries
+                for i, vid in enumerate(rollout_vid_order):
+                    idx = start_idx + i
+                    if 0 <= idx < len(agent.rollout.rewards):
+                        r, d, _ = results.get(vid, (0.0, False, {}))
+                        agent.rollout.rewards[idx] = r
+                        agent.rollout.dones[idx] = d
 
             ep_reward += total_step_reward
             ep_steps += 1
@@ -1191,8 +1195,8 @@ if __name__ == "__main__":
     config.enable_omm = not args.disable_omm
     config.enable_gat_context = not args.disable_gat_context
     config.log_interval = args.log_interval if args.log_interval > 0 else max(1, args.episodes // 10)
-    config.save_interval = max(1, args.episodes // 4)
-    config.eval_interval = max(1, args.episodes // 4)
+    config.save_interval = 25                         # was max(1, args.episodes // 4)
+    config.eval_interval = 25                         # was max(1, args.episodes // 4)
 
     if args.eval:
         # Load and evaluate
