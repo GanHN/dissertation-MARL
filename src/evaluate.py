@@ -1,19 +1,24 @@
 """
 evaluate.py
-Runs systematic experiments sweeping Market Penetration (MP) and
-Communication Radius (CR), then produces plots.
+Runs systematic MP/CR sweeps against the current simulator stack.
+
 Experiments:
-    1. MP Sweep:  Fix CR=0.5, vary MP from 0% to 100%
-    2. CR Sweep:  Fix MP=100%, vary CR from 0.1 to 1.5
-    3. OMM Proof: Compare Reroute+OMM vs Reroute-without-OMM vs No-Reroute
+    1. MP Sweep: fix CR, vary MP from 0% to 100%
+    2. CR Sweep: fix MP=100%, vary CR from 0.1 to 1.5
 
 Outputs (saved to results/):
-    - mstt_vs_mp.png        MSTT as a function of Market Penetration
-    - mss_vs_mp.png         MSS as a function of Market Penetration
-    - wait_time_vs_mp.png   Average wait time per trip vs MP
-    - mstt_vs_cr.png        MSTT as a function of Communication Radius
-    - results_table.csv     Raw numbers for all experiments
-    - convergence.png       MSTT over time for selected configs
+    - mp_sweep_results.csv
+    - cr_sweep_results.csv
+    - mstt_vs_mp.png
+    - mss_vs_mp.png
+    - wait_time_vs_mp.png
+    - near_miss_rate_vs_mp.png
+    - collision_rate_vs_mp.png
+    - mstt_vs_cr.png
+    - near_miss_rate_vs_cr.png
+    - collision_rate_vs_cr.png
+    - convergence.png
+    - improvement_summary.png
 """
 
 from __future__ import annotations
@@ -22,8 +27,7 @@ import argparse
 import os
 import sys
 import time
-from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -40,6 +44,7 @@ matplotlib.rcParams.update({
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.environment.simulator import Simulator, SimConfig
+from configs.experiment_defaults import COMM_RADIUS, NUM_OBSTACLES
 
 
 
@@ -76,7 +81,8 @@ def run_experiment(config: SimConfig, label: str = "", verbose: bool = False) ->
 def experiment_mp_sweep(
     mp_values: List[float],
     num_vehicles: int = 100,
-    cr: float = 0.5,
+    cr: float = COMM_RADIUS,
+    num_obstacles: int = NUM_OBSTACLES,
     max_timesteps: int = 500,
     num_seeds: int = 3,
     verbose: bool = True,
@@ -99,7 +105,7 @@ def experiment_mp_sweep(
                 num_vehicles=num_vehicles,
                 market_penetration=mp,
                 communication_radius=cr,
-                num_obstacles=2,
+                num_obstacles=num_obstacles,
                 max_timesteps=max_timesteps,
                 convergence_window=min(100, max_timesteps // 3),
                 warmup_steps=10,
@@ -121,6 +127,7 @@ def experiment_cr_sweep(
     cr_values: List[float],
     num_vehicles: int = 100,
     mp: float = 1.0,
+    num_obstacles: int = NUM_OBSTACLES,
     max_timesteps: int = 500,
     num_seeds: int = 3,
     verbose: bool = True,
@@ -143,7 +150,7 @@ def experiment_cr_sweep(
                 num_vehicles=num_vehicles,
                 market_penetration=mp,
                 communication_radius=cr,
-                num_obstacles=2,
+                num_obstacles=num_obstacles,
                 max_timesteps=max_timesteps,
                 convergence_window=min(100, max_timesteps // 3),
                 warmup_steps=10,
@@ -353,28 +360,30 @@ def main():
     total_runs = len(mp_values) * num_seeds + len(cr_values) * num_seeds
     print(f"Total experiment runs: {total_runs}")
     print(f"Mode: {'QUICK' if args.quick else 'FULL'}")
-
-    # ── Experiment 1: MP Sweep ──
+    print(f"Defaults: CR={COMM_RADIUS}, obstacles={NUM_OBSTACLES}")
+    # Experiment 1: MP Sweep
     df_mp = experiment_mp_sweep(
         mp_values=mp_values,
         num_vehicles=num_vehicles,
-        cr=0.5,
+        cr=COMM_RADIUS,
+        num_obstacles=NUM_OBSTACLES,
         max_timesteps=max_timesteps,
         num_seeds=num_seeds,
         verbose=True,
     )
 
-    # ── Experiment 2: CR Sweep ──
+    # Experiment 2: CR Sweep
     df_cr = experiment_cr_sweep(
         cr_values=cr_values,
         num_vehicles=num_vehicles,
         mp=1.0,
+        num_obstacles=NUM_OBSTACLES,
         max_timesteps=max_timesteps,
         num_seeds=num_seeds,
         verbose=True,
     )
 
-    # ── Save raw data ──
+    # Save raw data
     print(f"\n{'='*60}")
     print("Saving results...")
     print(f"{'='*60}")
@@ -388,7 +397,7 @@ def main():
     print(f"  Saved: {args.output}/mp_sweep_results.csv")
     print(f"  Saved: {args.output}/cr_sweep_results.csv")
 
-    # ── Generate plots ──
+    # Generate plots
     print(f"\n{'='*60}")
     print("Generating plots...")
     print(f"{'='*60}")
@@ -396,22 +405,34 @@ def main():
     # MSTT vs MP
     plot_metric_vs_mp(
         df_mp, "final_mstt", "Mean System Travel Time (timesteps)",
-        "MSTT vs Market Penetration (CR=0.5)",
+        f"MSTT vs Market Penetration (CR={COMM_RADIUS})",
         os.path.join(args.output, "mstt_vs_mp.png"),
     )
 
     # MSS vs MP
     plot_metric_vs_mp(
         df_mp, "final_mss", "Mean System Speed (blocks/timestep)",
-        "MSS vs Market Penetration (CR=0.5)",
+        f"MSS vs Market Penetration (CR={COMM_RADIUS})",
         os.path.join(args.output, "mss_vs_mp.png"),
     )
 
     # Wait time vs MP
     plot_metric_vs_mp(
         df_mp, "avg_wait_per_vehicle", "Avg Wait Time per Trip (timesteps)",
-        "Wait Time vs Market Penetration (CR=0.5)",
+        f"Wait Time vs Market Penetration (CR={COMM_RADIUS})",
         os.path.join(args.output, "wait_time_vs_mp.png"),
+    )
+
+    plot_metric_vs_mp(
+        df_mp, "near_miss_rate_per_1000_trips", "Near-Miss Rate (per 1000 trips)",
+        f"Near-Miss Rate vs Market Penetration (CR={COMM_RADIUS})",
+        os.path.join(args.output, "near_miss_rate_vs_mp.png"),
+    )
+
+    plot_metric_vs_mp(
+        df_mp, "collision_rate_per_1000_trips", "Collision Rate (per 1000 trips)",
+        f"Collision Rate vs Market Penetration (CR={COMM_RADIUS})",
+        os.path.join(args.output, "collision_rate_vs_mp.png"),
     )
 
     # MSTT vs CR
@@ -419,6 +440,18 @@ def main():
         df_cr, "final_mstt", "Mean System Travel Time (timesteps)",
         "MSTT vs Communication Radius (MP=100%)",
         os.path.join(args.output, "mstt_vs_cr.png"),
+    )
+
+    plot_metric_vs_cr(
+        df_cr, "near_miss_rate_per_1000_trips", "Near-Miss Rate (per 1000 trips)",
+        "Near-Miss Rate vs Communication Radius (MP=100%)",
+        os.path.join(args.output, "near_miss_rate_vs_cr.png"),
+    )
+
+    plot_metric_vs_cr(
+        df_cr, "collision_rate_per_1000_trips", "Collision Rate (per 1000 trips)",
+        "Collision Rate vs Communication Radius (MP=100%)",
+        os.path.join(args.output, "collision_rate_vs_cr.png"),
     )
 
     # Convergence plot (pick one run per MP level)
@@ -444,7 +477,7 @@ def main():
         os.path.join(args.output, "improvement_summary.png"),
     )
 
-    # ── Print final summary table ──
+    # Print final summary table
     print(f"\n{'='*60}")
     print("Final Summary: MP Sweep")
     print(f"{'='*60}")
@@ -454,6 +487,8 @@ def main():
         "avg_wait_per_vehicle": "mean",
         "total_trips": "mean",
         "total_recalculations": "mean",
+        "near_miss_rate_per_1000_trips": "mean",
+        "collision_rate_per_1000_trips": "mean",
     }).round(3)
     print(mp_summary.to_string())
 
@@ -465,6 +500,8 @@ def main():
         "final_mss": ["mean", "std"],
         "avg_wait_per_vehicle": "mean",
         "total_trips": "mean",
+        "near_miss_rate_per_1000_trips": "mean",
+        "collision_rate_per_1000_trips": "mean",
     }).round(3)
     print(cr_summary.to_string())
 

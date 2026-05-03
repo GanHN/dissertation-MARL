@@ -19,6 +19,9 @@ Terms:
 
     R_wait:      Penalty for each timestep spent stalled (blocked by
                  obstacle or gridlocked). Pushes agents to reroute.
+
+    R_event_safety: Explicit penalty for being involved in safety events
+                 (near-misses, collisions) detected by SafetyMonitor.
 """
 
 from __future__ import annotations

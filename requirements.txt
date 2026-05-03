@@ -3,12 +3,10 @@ scipy>=1.11
 networkx>=3.1                
 matplotlib>=3.7
 seaborn>=0.12
-
-# torch>=2.1,<2.5              # PyTorch - https://pytorch.org for CUDA version
-# torch-geometric>=2.4         # PyTorch Geometric - GAT, GCN, message passing
-# torch-scatter>=2.1           # Required by PyG
-# torch-sparse>=0.6            # Required by PyG - compatible version
-
+# torch>=2.1,<2.5              
+# torch-geometric>=2.4         
+# torch-scatter>=2.1           
+# torch-sparse>=0.6            
 gymnasium>=0.29              
 pandas>=2.0                  
 tqdm>=4.65                   
