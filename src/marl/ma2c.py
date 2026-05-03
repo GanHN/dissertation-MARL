@@ -76,10 +76,8 @@ class MA2CConfig:
 class Actor(nn.Module):
     """
     Decentralized policy network.
-
     Input:  local observation + GAT context vector
     Output: action probabilities over discrete action space
-
     During execution, this runs independently on each CAV
     using only local information and neighbour data (via GNN).
     """
@@ -100,13 +98,6 @@ class Actor(nn.Module):
     def forward(self, local_obs: torch.Tensor, context: torch.Tensor) -> Categorical:
         """
         Compute action distribution.
-
-        Args:
-            local_obs: [batch, local_obs_dim] local observation.
-            context:   [batch, context_dim] GAT context vector.
-
-        Returns:
-            Categorical distribution over actions.
         """
         x = torch.cat([local_obs, context], dim=-1)
         logits = self.network(x)
@@ -117,10 +108,8 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     """
     Centralized value function (used during training only).
-
     Input:  local observation + GAT context + global state info
     Output: scalar value estimate V(s)
-
     The global state info gives the critic access to system-wide
     information (total vehicles, average density, etc.) that
     individual agents can't observe. This is the "centralized"
@@ -148,14 +137,6 @@ class Critic(nn.Module):
     ) -> torch.Tensor:
         """
         Compute value estimate.
-
-        Args:
-            local_obs:    [batch, local_obs_dim]
-            context:      [batch, context_dim]
-            global_state: [batch, global_state_dim]
-
-        Returns:
-            values: [batch, 1] value estimates.
         """
         x = torch.cat([local_obs, context, global_state], dim=-1)
         return self.network(x)
@@ -165,16 +146,6 @@ class Critic(nn.Module):
 class GlobalStateBuilder:
     """
     Builds the global state vector used by the critic during training.
-
-    This includes system-wide information that no single agent can see:
-        - Total vehicles on network
-        - Average link density across all links
-        - Number of active obstacles
-        - Average system speed
-        - Fraction of vehicles that are CAVs
-        - Number of communication clusters
-        - Average cluster size
-        - Various normalised traffic statistics
     """
 
     @staticmethod
@@ -219,14 +190,6 @@ class GlobalStateBuilder:
 class RolloutStorage:
     """
     Stores experience tuples for a batch of agents over a rollout.
-
-    Each entry is one (state, action, reward, value, log_prob) tuple
-    for one agent at one timestep. After rollout_length steps, the
-    data is used to compute advantages and update the networks.
-
-    To allow gradients to flow through the GAT during updates, we
-    also store the raw GAT inputs (node_features, edge_index, agent_idx)
-    so the GAT can be re-run with gradients enabled in update().
     """
 
     def __init__(self):
@@ -346,14 +309,6 @@ class RolloutStorage:
 class MA2CAgent:
     """
     Complete MA2C agent combining GAT + Actor + Critic.
-
-    This is the main class you interact with. Each CAV in the
-    simulation has one of these (or they share parameters).
-
-    Usage:
-        agent = MA2CAgent(config)
-        action, log_prob, value = agent.act(local_obs, context, global_state)
-        loss = agent.update(rollout)
     """
 
     def __init__(self, config: Optional[MA2CConfig] = None):
@@ -389,18 +344,6 @@ class MA2CAgent:
     ) -> Tuple[int, torch.Tensor, torch.Tensor]:
         """
         Select an action given current observations.
-
-        During training: sample from the policy distribution.
-        During execution: take the greedy action (deterministic=True).
-
-        Args:
-            local_obs:    [local_obs_dim] local observation.
-            context:      [context_dim] GAT context vector.
-            global_state: [global_state_dim] global info (critic only).
-            deterministic: If True, take argmax action.
-
-        Returns:
-            (action_id, log_prob, value_estimate)
         """
         local_obs_batch = local_obs.unsqueeze(0)
         context_batch = context.unsqueeze(0)
@@ -425,29 +368,14 @@ class MA2CAgent:
     def update(self) -> Dict[str, float]:
         """
         Update networks using collected rollout data.
-
-        Computes:
-            - Policy gradient loss with PPO-style clipping
-            - Value function loss (critic)
-            - Entropy bonus (for exploration)
-
-        Training stability improvements:
-            - Rewards are normalised by reward_scale before advantage computation
-            - PPO-style ratio clipping prevents destructive policy updates
-            - GAT is re-run with gradients for true end-to-end training
-
-        Returns:
-            Dict with loss components.
         """
         if len(self.rollout) == 0:
             return {"policy_loss": 0, "value_loss": 0, "entropy": 0, "total_loss": 0}
 
         cfg = self.config
 
-        # ── Reward normalisation ──
-        # Scale rewards before computing returns/advantages. This is
-        # critical for stability because raw rewards can range from -20
-        # to +100+, leading to huge gradients.
+        #eward normalisation
+        # Scale rewards before computing returns/advantages.
         scaled_rewards = [r * cfg.reward_scale for r in self.rollout.rewards]
         # Replace in-place so compute_returns_and_advantages uses scaled values
         original_rewards = self.rollout.rewards
@@ -490,7 +418,7 @@ class MA2CAgent:
                 contexts_list.append(all_contexts[agent_idx])
             ctx_batch = torch.stack(contexts_list)
         else:
-            # Fallback: use stored (detached) contexts — no GAT gradient flow
+            # Fallback: use stored (detached) contexts no GAT gradient flow
             ctx_batch = torch.stack(self.rollout.contexts)
 
         # Forward pass through actor and critic
@@ -500,7 +428,7 @@ class MA2CAgent:
 
         values = self.critic(obs_batch, ctx_batch, gs_batch).squeeze()
 
-        # ── Policy loss with PPO-style clipping ──
+        # Policy loss with PPO-style clipping
         # The ratio measures how much the policy has changed since the rollout.
         # Clipping this ratio prevents catastrophic policy updates.
         if cfg.use_ppo_clip:
@@ -602,7 +530,7 @@ if __name__ == "__main__":
     print(f"  Actor:  {sum(p.numel() for p in agent.actor.parameters()):,}")
     print(f"  Critic: {sum(p.numel() for p in agent.critic.parameters()):,}")
 
-    # ── Test 1: Action selection ──
+    #Test 1: Action selection
     print("\n--- Test 1: Action Selection ---")
     local_obs = torch.randn(config.local_obs_dim)
     context = torch.randn(config.context_dim)
@@ -617,7 +545,7 @@ if __name__ == "__main__":
     action_det, _, _ = agent.act(local_obs, context, global_state, deterministic=True)
     print(f"Deterministic action: {action_det}")
 
-    # ── Test 2: Rollout collection ──
+    #Test 2: Rollout collection
     print("\n--- Test 2: Rollout Collection ---")
     for step in range(config.rollout_length):
         obs = torch.randn(config.local_obs_dim)
@@ -634,14 +562,14 @@ if __name__ == "__main__":
 
     print(f"Rollout size: {len(agent.rollout)} steps")
 
-    # ── Test 3: Training update ──
+    #Test 3: Training update
     print("\n--- Test 3: Training Update ---")
     losses = agent.update()
     print(f"Losses: {losses}")
     print(f"Total updates: {agent.total_updates}")
     print(f"Rollout cleared: {len(agent.rollout) == 0}")
 
-    # ── Test 4: Multiple updates ──
+    #Test 4: Multiple updates
     print("\n--- Test 4: Multiple Training Updates ---")
     for epoch in range(5):
         # Collect rollout
@@ -659,7 +587,7 @@ if __name__ == "__main__":
               f"value={losses['value_loss']:.4f} "
               f"entropy={losses['entropy']:.4f}")
 
-    # ── Test 5: Save/Load ──
+    #Test 5: Save/Load
     print("\n--- Test 5: Save/Load ---")
     agent.save("/tmp/ma2c_test.pt")
     agent2 = MA2CAgent(config)
@@ -674,7 +602,7 @@ if __name__ == "__main__":
     print(f"Loaded action={act2}, value={val2.item():.4f}")
     print(f"Match: {act1 == act2}")
 
-    # ── Test 6: Global state builder ──
+    #Test 6: Global state builder
     print("\n--- Test 6: Global State Builder ---")
     gs = GlobalStateBuilder.build(
         total_vehicles=100, avg_link_density=0.4, max_link_density=0.9,

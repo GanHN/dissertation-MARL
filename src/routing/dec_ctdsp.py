@@ -1,9 +1,5 @@
 """
 dec_ctdsp.py - Decentralized Collaborative Time-Dependent Shortest Path
-from:
-    Mostafizi et al., "A Decentralized and Coordinated Routing Algorithm
-    for Connected and Autonomous Vehicles," IEEE Trans. ITS, 2022.
-
 Algorithm 1: build_time_dependent_network()
     Takes the cluster vehicles' locations, and planned routes,
     simulates their movements over a planning horizon, and produces a
@@ -39,7 +35,6 @@ if TYPE_CHECKING:
 
 @dataclass
 class DecCTDSPConfig:
-    """Tuneable parameters for the Dec-CTDSP algorithm."""
     planning_horizon: int = 10   # How many timesteps into the future to simulate
     gridlock_penalty: float = 100.0  # Travel time when a link is fully gridlocked
 
@@ -48,13 +43,6 @@ class DecCTDSPConfig:
 class TimeDependentNetwork:
     """
     Stores time-varying travel times for every edge in the network.
-
-    For each edge (u, v), stores a list of (timestep, travel_time) tuples.
-    This is the TDep-G from the paper.
-
-    The key method is get_travel_time(u, v, t) which looks up the travel
-    time for edge (u,v) at time t using linear interpolation between
-    the two nearest recorded timesteps.
     """
 
     def __init__(self):
@@ -79,19 +67,6 @@ class TimeDependentNetwork:
     ) -> float:
         """
         GetTravelTime(TDep-G, u, v, f[u]) from Algorithm 2.
-
-        Looks up the travel time for edge (u,v) at time t.
-        Uses linear interpolation between the two nearest timesteps.
-        If t is beyond the last recorded timestep, returns the last value.
-        If t is before the first, returns the first value.
-
-        Args:
-            from_node: Source node of the edge.
-            to_node:   Target node of the edge.
-            t:         Time at which to query (f[u] in the paper).
-
-        Returns:
-            Interpolated travel time for this edge at time t.
         """
         entries = self.travel_times.get((from_node, to_node))
 
@@ -130,11 +105,9 @@ def build_time_dependent_network(
     planning_horizon: int = 10,
 ) -> TimeDependentNetwork:
     """
-    Algorithm 1 from the Dec-CTDSP paper.
-
-    Simulates the movement of cluster vehicles over a planning horizon
+    Algorithm 1
+     Simulates the movement of cluster vehicles over a planning horizon
     to predict how congested each link will be at each future timestep.
-
     Process:
         1. If the cluster is empty, set all edges to free-flow travel time.
         2. Otherwise, for each timestep in [0, planning_horizon]:
@@ -142,15 +115,6 @@ def build_time_dependent_network(
             b. Count vehicles on each edge to get density.
             c. Use speed-density relationship to compute travel time.
             d. Record (timestep, travel_time) for each edge.
-
-    Args:
-        network:          The grid network.
-        cluster_vehicles: Other CAVs in the communication cluster
-                          (with their current_node, speed, and planned_route).
-        planning_horizon: Number of future timesteps to simulate.
-
-    Returns:
-        TimeDependentNetwork with travel times for all edges at all timesteps.
     """
     td_net = TimeDependentNetwork()
     all_edges = list(network.graph.edges())
@@ -236,25 +200,13 @@ def time_dependent_dijkstra(
     blacklist: Set[Tuple[int, int]],
 ) -> List[Tuple[int, int]]:
     """
-    Algorithm 2 from the Dec-CTDSP paper, modified with OMM blacklist.
+    Algorithm 2
 
     Standard Dijkstra but instead of static edge weights, it calls
     GetTravelTime(TDep-G, u, v, f[u]) to look up the travel time
     for edge (u,v) at the time the vehicle would arrive at u.
-
     The blacklist modification: any node in the blacklist is skipped
     during neighbour expansion (unless it's the target itself).
-
-    Args:
-        network:    The grid network (for topology/neighbour lookups).
-        td_network: Time-dependent travel time data from Algorithm 1.
-        source:     Current intersection of the CAV.
-        target:     Destination of the CAV.
-        blacklist:  Set of node IDs to exclude from routing.
-
-    Returns:
-        List of nodes from source to target (excluding source).
-        Empty list if no path found.
     """
     # Priority queue: (cumulative_arrival_time, node)
     pq = [(0.0, source)]
@@ -324,27 +276,10 @@ def dec_ctdsp_route(
 ) -> List[Tuple[int, int]]:
     """
     The complete Dec-CTDSP routing pipeline.
-
-    This is the function you inject into a CAV with:
-        cav.set_routing_function(dec_ctdsp_route)
-
     Steps:
         1. Build the time-dependent network using cluster info (Algorithm 1)
         2. Run modified Dijkstra on it, excluding blacklisted nodes (Algorithm 2)
         3. Return the optimal route
-
-    Args:
-        network:          The grid network.
-        source:           Current node of the CAV.
-        target:           Destination of the CAV.
-        blacklist:        OMM blacklisted nodes to exclude.
-        cluster_vehicles: Other CAVs in the communication cluster.
-        timestep:         Current simulation timestep (unused but required by interface).
-        config:           Algorithm configuration.
-
-    Returns:
-        List of nodes from source to target (excluding source).
-        Empty list if no path found.
     """
     if config is None:
         config = DecCTDSPConfig()
@@ -380,7 +315,7 @@ if __name__ == "__main__":
     print("Dec-CTDSP Algorithm Test")
     print("=" * 60)
 
-    # ── Test 1: Empty cluster (free-flow) ──
+    #Test 1: Empty cluster (free-flow)
     print("\n--- Test 1: Empty Cluster (Free-Flow Routing) ---")
     route = dec_ctdsp_route(
         network=network,
@@ -393,7 +328,7 @@ if __name__ == "__main__":
     print(f"Route (0,0) -> (0,5): {route}")
     print(f"Length: {len(route)} steps (expected: 5, straight east)")
 
-    # ── Test 2: With blacklist ──
+    # Test 2: With blacklist
     print("\n--- Test 2: Routing with Blacklisted Nodes ---")
     route_bl = dec_ctdsp_route(
         network=network,
@@ -408,7 +343,7 @@ if __name__ == "__main__":
     avoids = (2, 2) not in route_bl and (2, 3) not in route_bl
     print(f"  Avoids blacklisted? {avoids}")
 
-    # ── Test 3: With cluster vehicles causing congestion ──
+    # Test 3: With cluster vehicles causing congestion
     print("\n--- Test 3: Cluster Vehicles Causing Congestion ---")
 
     # Create some CAVs that will congest the middle row
@@ -449,7 +384,7 @@ if __name__ == "__main__":
     row2_with = sum(1 for n in route_with_cluster if n[0] == 2)
     print(f"Row 2 nodes used: without={row2_no}, with={row2_with}")
 
-    # ── Test 4: Time-dependent network inspection ──
+    #Test 4: Time-dependent network inspection
     print("\n--- Test 4: Time-Dependent Network Details ---")
     td_net = build_time_dependent_network(
         network=network,
@@ -470,7 +405,7 @@ if __name__ == "__main__":
         tt = td_net.get_travel_time(*edge_free, float(t))
         print(f"  t={t}: travel_time={tt:.3f}")
 
-    # ── Test 5: Integration with CAV routing ──
+    # Test 5: Integration with CAV routing
     print("\n--- Test 5: CAV Integration ---")
     test_cav = CAV(vehicle_id=999, origin=(1, 0), destination=(3, 5)) #Juice Wrld Tribute
     test_cav.current_node = (1, 0)
@@ -492,7 +427,7 @@ if __name__ == "__main__":
     print(f"Avoids (2,2)? {(2, 2) not in test_cav.planned_route}")
     print(f"Route recalculations: {test_cav.num_route_recalculations}")
 
-    # ── Test 6: No path possible (everything blocked) ──
+    #Test 6: No path possible (everything blocked)
     print("\n--- Test 6: No Path Available ---")
     # Block all neighbours of source
     heavy_blacklist = {(0, 1), (1, 0)}

@@ -89,9 +89,7 @@ def experiment_mp_sweep(
 ) -> pd.DataFrame:
     """
     Sweep Market Penetration from 0% to 100% at fixed CR.
-
-    Runs multiple seeds for each MP to get mean + std (like the paper's
-    Monte Carlo approach).
+    Runs multiple seeds for each MP to get mean + std
     """
     if verbose:
         print(f"\n{'='*60}")
@@ -134,9 +132,6 @@ def experiment_cr_sweep(
 ) -> pd.DataFrame:
     """
     Sweep Communication Radius at fixed MP=100%.
-
-    Tests the paper's finding that CR=0.5 is sufficient for
-    a fully connected multi-hop network.
     """
     if verbose:
         print(f"\n{'='*60}")

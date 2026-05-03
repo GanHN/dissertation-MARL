@@ -35,7 +35,6 @@ class VehicleState(Enum):
 class MobilityMessage:
     """
     Lightweight message broadcasted by a CAV to its communication cluster.
-    This is ~12-16 bytes: vehicle_id + node + speed + route hash.
     """
     vehicle_id: int
     current_node: Tuple[int, int]
@@ -49,7 +48,6 @@ class MobilityMessage:
 class BlacklistEntry:
     """
     A single entry in the OMM blacklist.
-
     Uses confirmation-based persistence: the entry has a TTL (time-to-live)
     that gets refreshed whenever another CAV reconfirms the blockage.
     If no confirmation is received within the TTL, the entry expires
@@ -65,9 +63,7 @@ class BlacklistEntry:
 class Vehicle:
     """
     Base class for all vehicles in the simulation.
-
     Tracks position, destination, planned route, speed, and trip statistics.
-    Subclasses (CAV, HDV) implement different routing strategies.
     """
 
     def __init__(
@@ -115,10 +111,6 @@ class Vehicle:
     def set_route(self, route: List[Tuple[int, int]]) -> None:
         """
         Set a new planned route for this vehicle.
-
-        Args:
-            route: Ordered list of nodes from current position to destination.
-                   Should NOT include the current node as the first element.
         """
         self.planned_route = route
         self.route_index = 0
@@ -162,9 +154,6 @@ class Vehicle:
     def move_along_current_link(self, distance_blocks: float, block_length: float = 1.0) -> bool:
         """
         Advance along the current link by a continuous distance.
-
-        Returns:
-            True if the vehicle reached the next intersection this call.
         """
         if self.link_end_node is None:
             return False
@@ -231,9 +220,6 @@ class Vehicle:
     def compute_route(self, network: GridNetwork, timestep: int) -> None:
         """
         Compute a route from current position to destination.
-
-        This is the method where CAV and HDV behaviour diverges.
-        Must be overridden by subclasses.
         """
         raise NotImplementedError("Subclasses must implement compute_route()")
 
@@ -271,15 +257,7 @@ class HDV(Vehicle):
 
     def compute_route(self, network: GridNetwork, timestep: int) -> None:
         """
-        Compute the predefined naive route (Equation 1 from paper).
-
-        The route is: go east some steps, then go north/south to align
-        with the destination row, then go east the remaining steps.
-
-        On this grid:
-            - East  = (row, col) -> (row, col+1)
-            - North = (row, col) -> (row-1, col)  (row decreases = up)
-            - South = (row, col) -> (row+1, col)  (row increases = down)
+        Compute the predefined naive route
         """
         route = []
         r, c = self.current_node
@@ -294,11 +272,7 @@ class HDV(Vehicle):
             self.planned_route = []
             self.route_index = 0
             return
-
-        # Decide how many east steps before vertical adjustment
-        # Paper formula: go east for (total_east_steps - |dy|) steps first,
-        # then vertical, then remaining east steps.
-        # But we need to ensure the split makes sense.
+        
         east_before_vertical = max(0, total_east_steps - abs(dy))
 
         # Phase 1: Go east
@@ -332,16 +306,6 @@ class HDV(Vehicle):
 class CAV(Vehicle):
     """
     Connected Autonomous Vehicle with communication and OMM.
-
-    Key capabilities:
-        - Broadcasts MobilityMessages to neighbours within comm radius
-        - Maintains an OMM blacklist with confirmation-based TTL
-        - Routes via Dec-CTDSP (to be wired in from src/routing/)
-        - Falls back to random routing if no cluster neighbours exist
-
-    The actual Dec-CTDSP routing is delegated to an external function
-    that will be set via set_routing_function(). This keeps vehicle.py
-    decoupled from the routing module.
     """
 
     DEFAULT_BLACKLIST_TTL: int = 50  # Timesteps before unconfirmed entry expires
@@ -367,15 +331,6 @@ class CAV(Vehicle):
     def set_routing_function(self, func) -> None:
         """
         Set the external routing function (e.g., Dec-CTDSP).
-
-        Args:
-            func: Callable with signature:
-                  (network: GridNetwork,
-                   source: Tuple[int, int],
-                   target: Tuple[int, int],
-                   blacklist: Set[Tuple[int, int]],
-                   cluster_vehicles: List[Vehicle],
-                   timestep: int) -> List[Tuple[int, int]]
         """
         self._routing_function = func
 
@@ -399,12 +354,7 @@ class CAV(Vehicle):
     def decay_blacklist(self, timestep: int) -> List[Tuple[int, int]]:
         """
         Remove expired entries from the blacklist.
-
         An entry expires if (timestep - last_confirmed) > ttl.
-        This implements your confirmation-based persistence design.
-
-        Returns:
-            List of nodes that were removed (expired).
         """
         expired = []
         for node, entry in list(self.blacklist.items()):
@@ -431,8 +381,6 @@ class CAV(Vehicle):
     def create_mobility_message(self, timestep: int) -> MobilityMessage:
         """
         Create a mobility message to broadcast to the communication cluster.
-
-        Contains: vehicle ID, current location, speed, and planned route.
         """
         return MobilityMessage(
             vehicle_id=self.vehicle_id,
@@ -451,11 +399,6 @@ class CAV(Vehicle):
     ) -> None:
         """
         Compute route using Dec-CTDSP or fall back to random valid path.
-        Args:
-            network:           The grid network.
-            timestep:          Current simulation timestep.
-            cluster_vehicles:  Other CAVs in the communication cluster.
-                               If None or empty, falls back to random routing.
         """
         # First, decay expired blacklist entries
         self.decay_blacklist(timestep)
@@ -489,7 +432,6 @@ class CAV(Vehicle):
     ) -> List[Tuple[int, int]]:
         """
         Simple static Dijkstra as fallback when no cluster exists.
-
         Excludes blacklisted nodes from the search. Uses free-flow
         travel times as edge weights (no time-dependency).
         """
@@ -560,16 +502,6 @@ class VehicleFactory:
     ) -> List[Vehicle]:
         """
         Create a mixed fleet of vehicles.
-        Args:
-            num_vehicles:       Total number of vehicles.
-            market_penetration: Fraction of vehicles that are CAVs (0.0 to 1.0).
-            origins:            List of origin nodes to distribute vehicles across.
-            destinations:       List of destination nodes to assign randomly.
-            blacklist_ttl:      TTL for CAV blacklist entries.
-            seed:               Random seed for reproducibility.
-
-        Returns:
-            List of Vehicle objects (mix of CAV and HDV).
         """
         if seed is not None:
             random.seed(seed)
@@ -621,7 +553,6 @@ class VehicleFactory:
 
 
 if __name__ == "__main__":
-    # We need to add parent to path for the import to work standalone
     import sys
     import os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -636,7 +567,7 @@ if __name__ == "__main__":
     print("Vehicle Module Test")
     print("=" * 60)
 
-    # ── Test HDV routing ──
+    #Test HDV routing
     print("\n--- HDV Routing Test (Equation 1) ---")
     hdv = HDV(vehicle_id=0, origin=(0, 0), destination=(3, 5))
     hdv.compute_route(network, timestep=0)
@@ -657,7 +588,7 @@ if __name__ == "__main__":
     print(f"Route: {hdv3.planned_route}")
     print(f"Route length: {len(hdv3.planned_route)} steps")
 
-    # ── Test CAV with blacklist ──
+    #Test CAV with blacklist
     print("\n--- CAV Blacklist Test ---")
     cav = CAV(vehicle_id=10, origin=(0, 0), destination=(2, 5), blacklist_ttl=10)
 
@@ -686,14 +617,14 @@ if __name__ == "__main__":
     print(f"Expired: {expired2}")
     print(f"Still blacklisted: {cav2.get_blacklisted_nodes()}")
 
-    # ── Test MobilityMessage ──
+    #Test MobilityMessage
     print("\n--- Mobility Message Test ---")
     cav.speed = 0.8
     msg = cav.create_mobility_message(timestep=5)
     print(f"Message: vehicle={msg.vehicle_id}, node={msg.current_node}, "
           f"speed={msg.speed}, route_len={len(msg.planned_route)}")
 
-    # ── Test Fleet Creation ──
+    #Test Fleet Creation
     print("\n--- Fleet Creation Test ---")
     fleet = VehicleFactory.create_fleet(
         num_vehicles=20,
@@ -721,7 +652,7 @@ if __name__ == "__main__":
     cav_with_routes = [v for v in fleet if isinstance(v, CAV) and v.planned_route]
     print(f"CAVs with valid routes: {len(cav_with_routes)}/{num_cavs}")
 
-    # ── Test trip lifecycle ──
+    #Test trip lifecycle
     print("\n--- Trip Lifecycle Test ---")
     test_v = fleet[0]
     test_v.compute_route(network, timestep=0) if not test_v.planned_route else None

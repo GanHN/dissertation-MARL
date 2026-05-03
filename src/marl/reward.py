@@ -2,26 +2,6 @@
 reward.py - Multi-Objective Reward Function
 The reward function that defines what "good driving" means for the
 MARL agents. This is a key design contribution of the project.
-The total reward at each timestep is a weighted sum of five terms:
-
-    R(t) = w_p * R_progress + w_a * R_arrival + w_s * R_safety
-           + w_w * R_wait + w_es * R_event_safety
-
-Terms:
-    R_progress:  Positive reward for moving closer to destination.
-                 Measured as reduction in shortest-path distance.
-
-    R_arrival:   Large one-time bonus on reaching destination, scaled
-                 inversely by trip duration (faster = bigger bonus).
-
-    R_safety:    Penalty based on link congestion. Penalises being on
-                 overcrowded links (proxy for unsafe following distance).
-
-    R_wait:      Penalty for each timestep spent stalled (blocked by
-                 obstacle or gridlocked). Pushes agents to reroute.
-
-    R_event_safety: Explicit penalty for being involved in safety events
-                 (near-misses, collisions) detected by SafetyMonitor.
 """
 
 from __future__ import annotations
@@ -72,10 +52,6 @@ class RewardConfig:
 class RewardCalculator:
     """
     Computes the multi-objective reward for a vehicle at each timestep.
-
-    Usage:
-        calc = RewardCalculator()
-        reward, breakdown = calc.compute(vehicle, network, prev_distance, ...)
     """
 
     def __init__(self, config: Optional[RewardConfig] = None):
@@ -97,41 +73,25 @@ class RewardCalculator:
     ) -> Tuple[float, dict]:
         """
         Compute the total reward for a vehicle at this timestep.
-
-        Args:
-            vehicle:                 The vehicle being rewarded.
-            network:                 The grid network.
-            prev_distance:           Shortest-path distance to dest BEFORE this step.
-            curr_distance:           Shortest-path distance to dest AFTER this step.
-            is_stalled:              Whether the vehicle is blocked this timestep.
-            consecutive_stall_steps: How many consecutive timesteps it's been stalled.
-            just_arrived:            Whether the vehicle just reached its destination.
-            trip_duration:           How many timesteps this trip has taken so far.
-            link_density_ratio:      Current link density / capacity (0.0 to 1.0).
-            had_near_miss:           Whether this agent was in a near-miss event this step.
-            had_collision:           Whether this agent was in a collision event this step.
-
-        Returns:
-            (total_reward, breakdown_dict) where breakdown has each component.
         """
         cfg = self.config
 
-        # ── R_progress ──
+        # R_progress
         r_progress = self._compute_progress(prev_distance, curr_distance)
 
-        # ── R_arrival ──
+        # R_arrival
         r_arrival = self._compute_arrival(just_arrived, trip_duration)
 
-        # ── R_safety ──
+        # R_safety
         r_safety = self._compute_safety(link_density_ratio)
 
-        # ── R_wait ──
+        # R_wait
         r_wait = self._compute_wait(is_stalled, consecutive_stall_steps)
 
-        # ── R_event_safety ──
+        # R_event_safety
         r_event_safety = self._compute_event_safety(had_near_miss, had_collision)
 
-        # ── Total ──
+        # Total
         total = (
             cfg.w_progress * r_progress
             + cfg.w_arrival * r_arrival
@@ -164,12 +124,6 @@ class RewardCalculator:
     ) -> float:
         """
         Reward for moving closer to the destination.
-
-        R_progress = progress_per_block * (prev_dist - curr_dist)
-
-        Positive when moving closer, negative when moving away.
-        This gives a continuous gradient toward the goal and prevents
-        agents from looping forever without making progress.
         """
         delta = prev_distance - curr_distance
         return self.config.progress_per_block * delta
@@ -181,12 +135,7 @@ class RewardCalculator:
     ) -> float:
         """
         One-time bonus for reaching the destination.
-
         R_arrival = base_bonus * max(0, 1 - time_scale * (duration - optimal) / optimal)
-
-        Faster trips get a bigger bonus. A trip at optimal time gets the
-        full base_bonus. A trip taking twice as long gets a reduced bonus.
-        The bonus never goes below 0 (arriving is always better than not).
         """
         if not just_arrived:
             return 0.0
@@ -207,17 +156,6 @@ class RewardCalculator:
     ) -> float:
         """
         Penalty for being on congested/overcrowded links.
-
-        R_safety = 0                                    if ratio < threshold
-                 = congestion_penalty * (ratio - thresh) / (1 - thresh)
-                                                        if ratio >= threshold
-
-        This is a continuous penalty that scales with congestion.
-        At full capacity (ratio=1.0), the agent gets the full congestion_penalty.
-        Below the threshold, no penalty — some traffic is normal.
-
-        This serves as a proxy for "maintain safe following distance"
-        in the grid world where we don't have continuous physics.
         """
         cfg = self.config
 
@@ -238,13 +176,6 @@ class RewardCalculator:
     ) -> float:
         """
         Penalty for being stalled (blocked by obstacle or gridlocked).
-
-        R_wait = wait_penalty_per_step                  if stalled < threshold
-               = wait_penalty_per_step * multiplier     if stalled >= threshold
-               = 0                                      if not stalled
-
-        The penalty doubles after a long stall to push the agent
-        toward rerouting rather than waiting indefinitely.
         """
         if not is_stalled:
             return 0.0
@@ -261,7 +192,6 @@ class RewardCalculator:
     ) -> float:
         """
         Explicit event-based safety penalty.
-
         Collision is treated as more severe than near miss.
         """
         cfg = self.config
@@ -280,9 +210,6 @@ def shortest_path_distance(
 ) -> float:
     """
     Compute shortest path distance (in hops) from source to target.
-
-    Used by the progress reward to measure how much closer the agent
-    got to its destination. Uses BFS since all edges have weight 1.
     """
     if source == target:
         return 0.0
@@ -320,7 +247,7 @@ if __name__ == "__main__":
     print("Reward Function Test")
     print("=" * 60)
 
-    # ── Test 1: Progress reward ──
+    #Test 1: Progress reward
     print("\n--- Test 1: Progress Reward ---")
     reward, bd = calc.compute(
         vehicle=None, network=network,
@@ -343,7 +270,7 @@ if __name__ == "__main__":
     print(f"Moved 1 block AWAY: reward={reward2:.3f}")
     print(f"  Progress component: {bd2['r_progress']}")
 
-    # ── Test 2: Arrival bonus ──
+    # Test 2: Arrival bonus
     print("\n--- Test 2: Arrival Bonus ---")
     # Fast arrival (at optimal time)
     reward_fast, bd_fast = calc.compute(
@@ -366,7 +293,7 @@ if __name__ == "__main__":
     print(f"Slow arrival (15 steps): reward={reward_slow:.3f}, arrival_bonus={bd_slow['r_arrival']}")
     print(f"  Fast > Slow? {reward_fast > reward_slow}")
 
-    # ── Test 3: Safety penalty ──
+    # Test 3: Safety penalty
     print("\n--- Test 3: Safety Penalty ---")
     for ratio in [0.0, 0.3, 0.6, 0.8, 1.0]:
         _, bd_s = calc.compute(
@@ -378,7 +305,7 @@ if __name__ == "__main__":
         )
         print(f"  Density ratio={ratio:.1f}: safety_penalty={bd_s['r_safety']:.3f}")
 
-    # ── Test 4: Wait/stall penalty ──
+    # Test 4: Wait/stall penalty
     print("\n--- Test 4: Wait/Stall Penalty ---")
     for stall_steps in [0, 1, 3, 5, 10]:
         is_stalled = stall_steps > 0
@@ -391,7 +318,7 @@ if __name__ == "__main__":
         )
         print(f"  Stall steps={stall_steps:2d}: wait_penalty={bd_w['r_wait']:.3f}")
 
-    # ── Test 5: Shortest path distance helper ──
+    # Test 5: Shortest path distance helper
     print("\n--- Test 5: Shortest Path Distance ---")
     d1 = shortest_path_distance(network, (0, 0), (0, 5))
     print(f"(0,0) -> (0,5): {d1} hops (expected: 5, straight east)")
@@ -402,7 +329,7 @@ if __name__ == "__main__":
     d3 = shortest_path_distance(network, (2, 3), (2, 3))
     print(f"(2,3) -> (2,3): {d3} hops (expected: 0, same node)")
 
-    # ── Test 6: Full scenario ──
+    # Test 6: Full scenario
     print("\n--- Test 6: Full Trip Scenario ---")
     print("Simulating a 5-step trip with varying conditions:")
     scenarios = [

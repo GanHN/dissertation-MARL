@@ -2,20 +2,6 @@
 gat_network.py - Graph Attention Network for Inter-Vehicle Communication
 Models the communication cluster as a graph and uses attention to
 selectively extract critical information from neighbours.
-
-Architecture:
-    1. Each vehicle (node) has a local feature vector (observation).
-    2. Edges connect vehicles within the communication cluster.
-    3. GAT layers compute attention-weighted aggregation of neighbours.
-    4. Output is a dense context vector per vehicle, fusing local
-       observations with the most relevant neighbour information.
-
-This context vector feeds into the MA2C actor and critic networks.
-
-From the project design:
-    "The GNN acts as an attention mechanism, selectively extracting
-     critical information from neighbors and fusing it into a highly
-     dense context vector, optimizing communication efficiency."
 """
 
 from __future__ import annotations
@@ -27,7 +13,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Try importing PyG; fall back to manual attention if unavailable
 try:
     from torch_geometric.nn import GATConv
     HAS_PYG = True
@@ -55,11 +40,9 @@ class GATConfig:
 class ObservationBuilder:
     """
     Builds feature vectors from vehicle state for the GAT.
-
     Local observation (per vehicle):
         [row, col, dest_row, dest_col, speed, dist_remaining,
          time_elapsed, num_blacklisted]
-
     Neighbour observation (per neighbour):
         [delta_row, delta_col, speed, dist_remaining,
          route_overlap_score, is_heading_same_direction]
@@ -147,15 +130,6 @@ class ObservationBuilder:
 class GATNetwork(nn.Module):
     """
     Graph Attention Network for fusing vehicle observations.
-
-    Takes local observations + graph structure of the communication
-    cluster, and outputs a context vector per vehicle.
-
-    Architecture:
-        local_obs -> Linear -> GAT layers -> Linear -> context_vector
-
-    If PyTorch Geometric is not available, falls back to a simpler
-    manual multi-head attention implementation.
     """
 
     def __init__(self, config: Optional[GATConfig] = None):
@@ -163,7 +137,6 @@ class GATNetwork(nn.Module):
         self.config = config or GATConfig()
         cfg = self.config
 
-        # Input projection: local obs -> hidden dim
         self.input_proj = nn.Sequential(
             nn.Linear(cfg.local_obs_dim, cfg.hidden_dim),
             nn.ReLU(),
@@ -208,16 +181,7 @@ class GATNetwork(nn.Module):
     ) -> torch.Tensor:
         """
         Forward pass.
-
-        Args:
-            node_features: [num_nodes, local_obs_dim] feature tensor.
-            edge_index:    [2, num_edges] edge connectivity (PyG format).
-                           If None, uses fully-connected attention.
-
-        Returns:
-            context: [num_nodes, context_dim] context vectors.
         """
-        # Project input
         x = self.input_proj(node_features)  # [N, hidden_dim]
 
         if HAS_PYG and edge_index is not None:
@@ -276,15 +240,8 @@ def build_cluster_graph(
 ) -> torch.Tensor:
     """
     Build a fully-connected edge_index for a communication cluster.
-
     In a cluster, every CAV can communicate with every other CAV
     (multi-hop connectivity). So the graph is fully connected.
-
-    Args:
-        cluster_vehicle_ids: List of node indices in the node feature tensor.
-
-    Returns:
-        edge_index: [2, num_edges] tensor for PyG.
     """
     if len(cluster_vehicle_ids) <= 1:
         return torch.zeros((2, 0), dtype=torch.long)
@@ -319,7 +276,7 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in gat.parameters())
     print(f"  Total params: {total_params:,}")
 
-    # ── Test 1: Observation builder ──
+    #Test 1: Observation builder
     print("\n--- Test 1: Observation Builder ---")
     obs = ObservationBuilder.build_local_obs(
         current_node=(2, 3),
@@ -341,7 +298,7 @@ if __name__ == "__main__":
     )
     print(f"Neighbor obs (6 features): {[round(x, 3) for x in neigh_obs]}")
 
-    # ── Test 2: Forward pass with cluster ──
+    #Test 2: Forward pass with cluster
     print("\n--- Test 2: Forward Pass ---")
     num_nodes = 5  # 5 vehicles in cluster
 
@@ -358,13 +315,13 @@ if __name__ == "__main__":
     print(f"Output context: shape={context.shape}")
     print(f"  Agent 0 context: {context[0][:5].tolist()} ...")
 
-    # ── Test 3: Single agent context ──
+    #Test 3: Single agent context
     print("\n--- Test 3: Single Agent Context ---")
     with torch.no_grad():
         agent_ctx = gat.get_context_for_agent(0, node_features, edge_index)
     print(f"Agent 0 context vector: shape={agent_ctx.shape}")
 
-    # ── Test 4: Single node (no neighbours) ──
+    #Test 4: Single node (no neighbours)
     print("\n--- Test 4: Isolated Agent (No Neighbours) ---")
     single_features = torch.randn(1, config.local_obs_dim)
     empty_edges = torch.zeros((2, 0), dtype=torch.long)
@@ -372,7 +329,7 @@ if __name__ == "__main__":
         single_ctx = gat(single_features, empty_edges)
     print(f"Isolated agent context: shape={single_ctx.shape}")
 
-    # ── Test 5: Route overlap ──
+    # Test 5: Route overlap
     print("\n--- Test 5: Route Overlap Score ---")
     route_a = [(2, 1), (2, 2), (2, 3), (2, 4), (2, 5)]
     route_b = [(2, 2), (2, 3), (2, 4), (3, 4), (3, 5)]

@@ -1,14 +1,6 @@
 """
 grid_network.py - Transportation Network for CAV Simulation
 Builds the grid-based road network used by the Dec-CTDSP routing algorithm.
-Network layout:
-    - 6x6 grid of intersections (nodes labelled (row, col) where row=0 is top)
-    - East-west streets: ONE-WAY towards east (left -> right)
-    - North-south streets: TWO-WAY (up and down)
-    - Origins: 5 nodes on the west edge  (rows 0-4, col 0)
-    - Destinations: 5 nodes on the east edge (rows 0-4, col 5)
-    - All links share the same speed limit and free-flow travel time
-    - Speed-density relationship governs actual travel times under congestion
 """
 
 import networkx as nx
@@ -25,24 +17,17 @@ class NetworkConfig:
     """All tuneable parameters for the grid network."""
     rows: int = 6                    # Number of rows in grid
     cols: int = 6                    # Number of columns in grid
-    block_length: float = 1.0        # Distance between adjacent intersections (in "blocks")
+    block_length: float = 1.0       
     speed_limit: float = 1.0         # Free-flow speed (blocks per timestep)
     free_flow_travel_time: float = 1.0  # Travel time on an empty link (timesteps)
     link_capacity: int = 5           # Max vehicles on a link before gridlock
-    num_vehicles: int = 100          # Total vehicles in simulation
+    num_vehicles: int = 100          
 
 
 
 def speed_density(density: float, capacity: int, speed_limit: float = 1.0) -> float:
     """
     Compute the speed on a link given its current vehicle density.
-    Args:
-        density:     Number of vehicles currently on the link.
-        capacity:    Maximum vehicles the link can hold.
-        speed_limit: Speed when the link is empty.
-
-    Returns:
-        Current speed on the link (0.0 to speed_limit).
     """
     if density <= 0:
         return speed_limit
@@ -60,15 +45,6 @@ def compute_travel_time(
 ) -> float:
     """
     Compute travel time on a link given current density.
-
-    Args:
-        density:      Number of vehicles currently on the link.
-        capacity:     Maximum vehicles the link can hold.
-        free_flow_tt: Travel time when link is empty.
-        speed_limit:  Free-flow speed.
-
-    Returns:
-        Current travel time. Returns a large value (100.0) if gridlocked.
     """
     spd = speed_density(density, capacity, speed_limit)
     if spd <= 1e-6:
@@ -80,13 +56,6 @@ def compute_travel_time(
 class GridNetwork:
     """
     The transportation network represented as a directed graph.
-
-    Each node is an intersection identified by a (row, col) tuple.
-    Each directed edge is a road link with attributes:
-        - free_flow_tt:  travel time when empty
-        - capacity:      max vehicles before gridlock
-        - current_vehicles: list of vehicle IDs currently on this link
-        - direction:     'east', 'north', or 'south'
     """
 
     def __init__(self, config: Optional[NetworkConfig] = None):
@@ -101,12 +70,11 @@ class GridNetwork:
         """Build the full grid graph with nodes, edges, origins, and destinations."""
         cfg = self.config
 
-        # Create intersection nodes
         for r in range(cfg.rows):
             for c in range(cfg.cols):
                 self.graph.add_node(
                     (r, c),
-                    pos=(c, cfg.rows - 1 - r),  # (x, y) for plotting
+                    pos=(c, cfg.rows - 1 - r),  
                     is_origin=(c == 0 and r < cfg.rows - 1),
                     is_destination=(c == cfg.cols - 1 and r < cfg.rows - 1),
                     is_blocked=False,
@@ -125,7 +93,6 @@ class GridNetwork:
 
         # Define origins (west edge, rows 0 through rows-2)
         # and destinations (east edge, rows 0 through rows-2)
-        # Following the paper: 5 origins, 5 destinations
         self.origins = [(r, 0) for r in range(cfg.rows - 1)]
         self.destinations = [(r, cfg.cols - 1) for r in range(cfg.rows - 1)]
 
@@ -219,9 +186,6 @@ class GridNetwork:
     ) -> bool:
         """
         Try to add a vehicle to a link's current vehicle list.
-
-        Returns:
-            True if placed or already present, False if link is full.
         """
         vehicles = self.graph.edges[from_node, to_node]["current_vehicles"]
         if vehicle_id in vehicles:
@@ -301,12 +265,6 @@ class GridNetwork:
     ) -> None:
         """
         Draw the grid network using matplotlib.
-
-        Args:
-            title:          Plot title.
-            show_densities: If True, colour edges by current vehicle count.
-            blocked_nodes:  Highlight these nodes as blocked (red X).
-            save_path:      If provided, save figure to this path instead of showing.
         """
         fig, ax = plt.subplots(1, 1, figsize=(10, 8))
         pos = nx.get_node_attributes(self.graph, "pos")
@@ -345,13 +303,13 @@ class GridNetwork:
         node_sizes = []
         for node in self.graph.nodes():
             if node in self.origins:
-                node_colors.append("#3B82F6")   # Blue for origins
+                node_colors.append("#3B82F6")   
                 node_sizes.append(350)
             elif node in self.destinations:
-                node_colors.append("#22C55E")   # Green for destinations
+                node_colors.append("#22C55E")   
                 node_sizes.append(350)
             else:
-                node_colors.append("#E5E7EB")   # Light gray for intersections
+                node_colors.append("#E5E7EB")   
                 node_sizes.append(200)
 
         nx.draw_networkx_nodes(
@@ -421,7 +379,6 @@ class GridNetwork:
 
 
 if __name__ == "__main__":
-    # Build default 6x6 network
     config = NetworkConfig()
     network = GridNetwork(config)
 

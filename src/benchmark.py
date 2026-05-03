@@ -202,8 +202,7 @@ def run_dec_ctdsp_ma2c_no_omm(
     Run Dec-CTDSP + MA2C but WITHOUT OMM.
     CAVs use Dec-CTDSP for routing and the MA2C agent for decisions,
     but their blacklists are cleared every timestep so there's no
-    persistent obstacle memory. This ablation proves whether OMM
-    actually contributes to performance vs MARL alone.
+    persistent obstacle memory.
     """
     cfg = SimConfig(**{**config.__dict__, "market_penetration": 1.0, "seed": seed})
 
@@ -239,9 +238,6 @@ def run_dec_ctdsp_rule_heuristic(
 ) -> Dict:
     """
     Run Dec-CTDSP + OMM with a fixed rule-based policy instead of MA2C.
-
-    This isolates whether the learned policy adds value beyond a simple
-    handcrafted decision policy over the same action space.
     """
     cfg = SimConfig(**{**config.__dict__, "market_penetration": 1.0, "seed": seed})
     return _run_with_trained_agent(
@@ -262,9 +258,6 @@ def run_dec_ctdsp_ma2c_no_gat(
 ) -> Dict:
     """
     Run Dec-CTDSP + OMM + MA2C with GAT context disabled at execution time.
-
-    This isolates the effect of inter-agent context aggregation vs.
-    independent local decision-making.
     """
     cfg = SimConfig(**{**config.__dict__, "market_penetration": 1.0, "seed": seed})
     if not (model_path and os.path.exists(model_path)):
@@ -289,7 +282,7 @@ def run_dec_ctdsp_ma2c_no_gat(
 
 def _rule_action_for_cav(env, cav: CAV) -> int:
     """
-    Handcrafted policy over the 4-action space:
+    custom policy over the 4-action space:
       0 follow, 1 alternative, 2 wait, 3 reroute
     """
     if cav.state != VehicleState.EN_ROUTE:
@@ -777,7 +770,6 @@ def plot_radar_chart(
     }).reset_index()
 
     # Normalise all metrics to 0-1 (higher=better after normalisation)
-    # For metrics where lower is better, we invert
     order = CONFIG_ORDER
     grouped["order"] = grouped["config_name"].map({n: i for i, n in enumerate(order)})
     grouped = grouped.sort_values("order").reset_index(drop=True)

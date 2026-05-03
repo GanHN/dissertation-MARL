@@ -2,23 +2,6 @@
 train_marl.py - Training Script for MA2C with GAT
 Connects the MARL components to the simulator and runs the
 Centralized Training with Decentralized Execution (CTDE) loop.
-Training loop:
-    1. Reset the simulator for a new episode
-    2. For each timestep in the episode:
-       Build observations for each CAV
-       Run GAT to get context vectors
-       Actor selects actions per CAV
-       Execute actions in the simulator
-       Compute rewards
-       Critic evaluates (with global state)
-       Store experience in rollout buffer
-    3. After rollout_length steps, compute advantages and update networks
-    4. Log training metrics
-Actions state:
-    0: Follow Dec-CTDSP route — continue on the planned route
-    1: Alternative route — take second-best path via modified Dijkstra
-    2: Wait — stay at current intersection for one timestep
-    3: Reroute — trigger a fresh Dec-CTDSP computation immediately
 """
 
 from __future__ import annotations
@@ -198,11 +181,6 @@ class MARLEnvironment:
     def step(self, actions: Dict[int, int]) -> Dict[int, Tuple[float, bool, dict]]:
         """
         Execute one timestep with MA2C-selected actions for each CAV.
-        Args:
-            actions: {vehicle_id: action_id} for each CAV.
-                     0=follow, 1=alternative, 2=wait, 3=reroute
-        Returns:
-            {vehicle_id: (reward, done, info)} for each CAV.
         """
         self.timestep += 1
         active_now = sum(1 for v in self.vehicles if v.state == VehicleState.EN_ROUTE)
@@ -629,8 +607,6 @@ class MARLEnvironment:
     def get_gat_inputs(self) -> Tuple[torch.Tensor, torch.Tensor, List[int]]:
         """
         Build GAT input: stacked node features + edge index.
-        Returns:
-            (node_features, edge_index, vehicle_id_order)
         """
         active_cavs = [
             c for c in self.cavs if c.state == VehicleState.EN_ROUTE
@@ -732,7 +708,7 @@ def train(
     """
     os.makedirs(config.save_dir, exist_ok=True)
 
-    # Optional tqdm progress bar
+    #tqdm progress bar
     try:
         from tqdm import tqdm
         has_tqdm = True
@@ -1006,7 +982,7 @@ def train(
             print(f"  Total updates: {agent.total_updates}")
             print(f"  Total time: {time.time() - start_time:.0f}s")
     else:
-        # No eval happened — just save the last one as final
+        # No eval happened just save the last one as final
         agent.save(final_path)
         if verbose:
             print(f"\nTraining complete. Model saved to {final_path}")
@@ -1015,8 +991,6 @@ def train(
 
     # Save training curves
     _save_training_curves(episode_rewards, loss_history, config.save_dir)
-
-    # Also save a CSV of the full training log for reports
     _save_training_log_csv(episode_rewards, loss_history, config.save_dir)
 
     return agent

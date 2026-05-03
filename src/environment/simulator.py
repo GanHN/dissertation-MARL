@@ -2,16 +2,6 @@
 simulator.py - Main Simulation Loop
 The central engine that ties all modules together and runs the
 agent-based traffic simulation.
-Each timestep:
-    1. Update communication clusters
-    2. Propagate obstacle confirmations (OMM)
-    3. Decay expired blacklist entries
-    4. For each vehicle at an intersection:
-       a. Check for obstacles -> broadcast if detected
-       b. Compute/recompute route (Dec-CTDSP for CAVs, naive for HDVs)
-    5. Move vehicles along their routes
-    6. Handle arrivals -> reset for new trip (continuous format)
-    7. Record metrics (MSTT, MSS, wait times, recalculations)
 """
 
 from __future__ import annotations
@@ -62,7 +52,7 @@ class SimConfig:
     # Simulation
     max_timesteps: int = 500
     convergence_window: int = 200        # Check last N MSTT readings
-    convergence_threshold: float = 0.02  # Std dev / mean < this = converged
+    convergence_threshold: float = 0.02  
     warmup_steps: int = 20               # Steps before recording metrics
 
     # Reproducibility
@@ -112,9 +102,6 @@ class SimMetrics:
     def is_converged(self, window: int = 200, threshold: float = 0.02) -> bool:
         """
         Check if MSTT has converged.
-
-        From the paper: "standard deviation of the last 200 readings
-        dropping below 2%."
         """
         if len(self.mstt_history) < window:
             return False
@@ -190,9 +177,6 @@ class ObstacleManager:
     def update(self, timestep: int) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
         """
         Update obstacles: clear expired ones and spawn new ones.
-
-        Returns:
-            (newly_spawned, newly_cleared) lists of nodes.
         """
         newly_cleared = []
         newly_spawned = []
@@ -229,7 +213,6 @@ class ObstacleManager:
 class Simulator:
     """
     The main simulation engine.
-
     Orchestrates all components: network, vehicles, communication,
     OMM, routing, obstacles, and metrics collection.
     """
@@ -292,12 +275,6 @@ class Simulator:
     def run(self, verbose: bool = False) -> SimMetrics:
         """
         Run the full simulation until convergence or max timesteps.
-
-        Args:
-            verbose: If True, print progress every 50 timesteps.
-
-        Returns:
-            SimMetrics with all recorded data.
         """
         cfg = self.config
 
@@ -424,7 +401,6 @@ class Simulator:
     def _remove_collided_vehicles(self, vehicle_ids: set[int]) -> None:
         """
         Remove collided vehicles from active simulation dynamics.
-
         Vehicles are marked as ARRIVED-like terminal state (without trip credit)
         and removed from any link occupancy lists.
         """
@@ -446,7 +422,6 @@ class Simulator:
     def _move_vehicle(self, v: Vehicle, t: int) -> bool:
         """
         Advance a vehicle continuously along its current route.
-
         At each intersection, CAVs can recompute their route using
         Dec-CTDSP with current cluster information.
         """

@@ -31,8 +31,8 @@ class CommConfig:
 @dataclass
 class ObstacleBroadcast:
     """
-    Lightweight message (~12-16 bytes) sent when a CAV detects a blockage.
-    When a CAV encounters a blocked intersection, it broadcasts a lightweight 12-16 byte message containing the obstacle's
+    Lightweight message sent when a CAV detects a blockage.
+    When a CAV encounters a blocked intersection, it broadcasts a lightweight message containing the obstacle's
     Node ID to its cluster.
     """
     sender_id: int
@@ -73,18 +73,8 @@ class CommunicationManager:
     ) -> None:
         """
         Recompute communication clusters based on current vehicle positions.
-
         Only CAVs participate in clusters. HDVs are invisible to the
         communication system.
-
-        Algorithm:
-            1. Build an adjacency list of CAVs within CR of each other.
-            2. If multi-hop enabled: find connected components (Union-Find).
-            3. Otherwise: each CAV's cluster is just its direct neighbours.
-
-        Args:
-            vehicles: All vehicles in the simulation.
-            network:  The grid network (for position lookups).
         """
         # Filter to only CAVs that are actively on the network
         active_cavs = [
@@ -191,17 +181,6 @@ class CommunicationManager:
     ) -> List[Vehicle]:
         """
         Get the actual Vehicle objects in the same cluster.
-
-        This is what Dec-CTDSP needs: the list of CAVs whose
-        speed, location, and planned route are available.
-
-        Args:
-            vehicle_id:   The querying vehicle's ID.
-            all_vehicles: Full list of all vehicles.
-            exclude_self: If True, don't include the querying vehicle.
-
-        Returns:
-            List of Vehicle objects in the cluster.
         """
         cluster_ids = self.get_cluster_for_vehicle(vehicle_id)
         if exclude_self:
@@ -230,13 +209,6 @@ class CommunicationManager:
         Returns a dict mapping each CAV's ID to the list of messages
         it received from cluster neighbours. This is the input data
         for Dec-CTDSP's time-dependent network construction.
-
-        Args:
-            vehicles: All vehicles in the simulation.
-            timestep: Current simulation timestep.
-
-        Returns:
-            {vehicle_id: [MobilityMessage, ...]} for each CAV.
         """
         id_to_vehicle = {v.vehicle_id: v for v in vehicles}
         received: Dict[int, List[MobilityMessage]] = {}
@@ -269,21 +241,6 @@ class CommunicationManager:
     ) -> int:
         """
         Broadcast an obstacle detection to the sender's entire cluster.
-
-        When a CAV detects a blocked intersection:
-            1. It adds the node to its own blacklist.
-            2. It creates an ObstacleBroadcast message.
-            3. Every other CAV in the cluster receives the message
-               and updates their blacklist (refresh TTL if already known).
-
-        Args:
-            sender:       The CAV that detected the obstacle.
-            blocked_node: The node ID that is blocked.
-            vehicles:     All vehicles in the simulation.
-            timestep:     Current simulation timestep.
-
-        Returns:
-            Number of CAVs that received the broadcast.
         """
         # Sender updates its own blacklist
         sender.add_to_blacklist(blocked_node, timestep)
@@ -331,20 +288,6 @@ class CommunicationManager:
     ) -> int:
         """
         CAVs near a still-blocked node re-broadcast confirmations.
-
-        This supports your confirmation-based persistence design:
-        if a CAV is adjacent to (or at) a blocked node, it confirms
-        the blockage to its cluster, refreshing the TTL for everyone.
-
-        Called once per timestep during the simulation loop.
-
-        Args:
-            vehicles: All vehicles in the simulation.
-            network:  The grid network (to check which nodes are blocked).
-            timestep: Current simulation timestep.
-
-        Returns:
-            Number of confirmations sent.
         """
         blocked_nodes = set(network.get_blocked_nodes())
         if not blocked_nodes:

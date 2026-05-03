@@ -1,10 +1,5 @@
 """
 safety.py - Safety event detection utilities
-Adds lightweight safety metrics:
-    - near-miss events (TTC below threshold)
-    - collision events (very small headway with closing speed)
-The current traffic model is link-based and continuous along edges.
-So safety checks are evaluated on vehicles sharing the same directed link.
 """
 
 from __future__ import annotations
@@ -35,8 +30,7 @@ class SafetyStepStats:
 class SafetyMonitor:
     """
     Detect safety events from current vehicle states.
-
-    Logic (same-link following model):
+    Logic:
         - Sort vehicles on each directed link by progress.
         - Evaluate each leader-follower adjacent pair.
         - Near miss if TTC < threshold.
@@ -64,7 +58,6 @@ class SafetyMonitor:
             if len(link_vehicles) < 2:
                 continue
 
-            # Front-most first (higher progress is closer to downstream node)
             ordered = sorted(link_vehicles, key=lambda x: x.link_progress, reverse=True)
 
             for i in range(len(ordered) - 1):
