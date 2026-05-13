@@ -119,7 +119,7 @@ def demo_omm_and_rerouting() -> tuple[GridNetwork, list[CAV], CommunicationManag
         entry = cav0.blacklist[blocked_node]
         print(f"  CAV_0 last_confirmed for {blocked_node}: {entry.last_confirmed}")
 
-    # Now the obstacle clears, and without future confirmations the blacklist entry expires.
+    # obstacle clears, and without future confirmations the blacklist entry expires.
     t_clear = 45
     network.unblock_node(blocked_node)
     print(f"\nTimestep {t_clear}: obstacle clears in the environment")
